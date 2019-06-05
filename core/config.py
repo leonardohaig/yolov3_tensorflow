@@ -19,13 +19,13 @@ cfg                             = __C
 
 #YOLO options
 __C.YOLO                        = edict()
-__C.YOLO.CLASSES                = './data/classes/coco.names'
-__C.YOLO.ANCHORS                = './data/anchors/basline_anchors.txt'
+__C.YOLO.CLASSES                = './data/classes/coco.names' #类别名称存放路径
+__C.YOLO.ANCHORS                = './data/anchors/basline_anchors.txt' # anchors
 __C.YOLO.MOVING_AVE_DECAY       = 0.995
 __C.YOLO.STRIDES                = [8,16,32]
 __C.YOLO.ANCHOR_PER_SCALE       = 3
 __C.YOLO.IOU_LOSS_THRESH        = 0.5
-__C.YOLO.UPSAMPLE_METHOD        = 'resize'
+__C.YOLO.UPSAMPLE_METHOD        = 'resize' #上采样方式，'resize' or `deconv`
 __C.YOLO.ORIGINAL_WEIGHT        = './checkpoint/yolov3_coco.ckpt'
 __C.YOLO.DEMO_WEIGHT            = './checkpoint/yolov3_coco_demo.ckpt'
 

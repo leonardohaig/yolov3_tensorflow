@@ -47,7 +47,7 @@ def darknet53(input_data,trainable):
             input_data = common.residual_block(input_data,256,128,256,trainable=trainable,
                                                name='residual%d'%(i+3))#输出厚度为256
 
-        route_1 = input_data
+        route_1 = input_data #52X52
         input_data = common.convolutional(input_data,filters_shape=(3,3,256,512),
                                           trainable=trainable,name='conv26',downsample=True)#第4次下采样
 
@@ -55,13 +55,14 @@ def darknet53(input_data,trainable):
             input_data = common.residual_block(input_data,512,256,512,trainable=trainable,
                                                name='residual%d'%(i+11))#输出厚度为512
 
-        route_2 = input_data
+        route_2 = input_data #26X26
         input_data = common.convolutional(input_data,filters_shape=(3,3,512,1024),
                                           trainable=trainable,downsample=True)#第5次下采样
 
         for i in range(4):
             input_data = common.residual_block(input_data,1024,512,1024,trainable=trainable,
                                                name='residual%d'%(i+19))
+        #input_data:13X13
 
         return route_1,route_2,input_data
 
