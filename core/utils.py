@@ -16,7 +16,7 @@ import random
 import colorsys
 import numpy as np
 import tensorflow as tf
-import core.config as cfg
+from core.config import cfg
 
 
 def read_class_names(class_file_name):
@@ -49,7 +49,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
     '''
     将图像及groundtruth boxes进行缩放，以及图像进行归一化
     :param image:
-    :param target_size:
+    :param target_size ;data type:list
     :param gt_boxes:
     :return:
     '''
@@ -58,7 +58,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
     image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB).astype(np.float32)
 
     ih,iw = target_size#目标图像大小
-    h,w = image.shape#输入图像的尺寸
+    h,w = image.shape[:2]#输入图像的尺寸
 
     # 缩放比例，
     # 图像缩放时，并非直接缩放的目标尺寸，
@@ -93,7 +93,7 @@ def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label
     :return:
     '''
     num_classes = len(classes)
-    image_h,image_w = image.shape
+    image_h,image_w,_ = image.shape
     hsv_tuples = [(1.0*x/num_classes,1.0,1.0) for x in range(num_classes)]
     colors = list(map(lambda x:colorsys.hsv_to_rgb(*x),hsv_tuples))
     colors = list(map(lambda x:(int(x[0]*255),int(x[1]*255),int(x[2]*255)),colors))
@@ -140,12 +140,12 @@ def bboxes_iou(boxes1,boxes2):
 
     #cal Intersection
     left_up = np.maximum(boxes1[...,:2],boxes2[...,:2])
-    right_down = np.minum(boxes1[...,2:],boxes2[...,2:])
+    right_down = np.minimum(boxes1[...,2:],boxes2[...,2:])
 
-    inter_section = np.maxmum(right_down-left_up,0,0)
+    inter_section = np.maximum(right_down-left_up,0.0)
     inter_area = inter_section[...,0] * inter_section[...,1]
-    union_area = boxes1Area+boxes2Area-inter_section
-    ious = np.maxmum(1.0*inter_area/union_area,np.finfo(np.float32).eps)
+    union_area = boxes1Area+boxes2Area-inter_area
+    ious = np.maximum(1.0*inter_area/union_area,np.finfo(np.float32).eps)
 
     return ious
 
@@ -163,13 +163,14 @@ def read_pb_return_tensors(graph,pb_file,return_elements):
         frozen_graph_def.ParseFromString(f.read())
 
     with graph.as_default():
+        #从导入的图中得到的与return_element中的名称相对应的操作和/或张量对象的列表
         return_elements = tf.import_graph_def(frozen_graph_def,
                                               return_elements=return_elements)
 
     return return_elements
 
 
-def nms(bboxes,iou_threshold,sigma=0.3,mehod='nms'):
+def nms(bboxes,iou_threshold,sigma=0.3,method='nms'):
     '''
 
     :param bboxes: (xmin,ymin,xmax,ymax,score,class)
@@ -179,7 +180,7 @@ def nms(bboxes,iou_threshold,sigma=0.3,mehod='nms'):
     :return:
     '''
 
-    assert mehod in ['nms','soft-nms']
+    assert method in ['nms','soft-nms']
 
     classes_in_img = list(set(bboxes[:,5]))
     best_bboxes = []
@@ -196,11 +197,11 @@ def nms(bboxes,iou_threshold,sigma=0.3,mehod='nms'):
             iou = bboxes_iou(best_bbox[np.newaxis,:4],cls_bboxes[:, :4])
             weight = np.ones((len(iou),),dtype=np.float32)#?
 
-            if mehod == 'nms':
+            if method == 'nms':
                 iou_mask = iou>iou_threshold
                 weight[iou_mask] = 0.0
 
-            if mehod == 'soft-nms':
+            if method == 'soft-nms':
                 weight = np.exp(-(1.0*iou**2/sigma))
 
             cls_bboxes[:, 4] = cls_bboxes[:, 4]*weight
@@ -218,47 +219,44 @@ def postprocess_boxes(pred_bbox,org_img_shape,input_size,score_threshold):
     :param score_threshold:
     :return:
     '''
-    valid_scale = [0,np.inf]
+    valid_scale = [0, np.inf]
     pred_bbox = np.array(pred_bbox)
 
     pred_xywh = pred_bbox[:, 0:4]
     pred_conf = pred_bbox[:, 4]
-    pred_prob = pred_bbox[:, 5]
+    pred_prob = pred_bbox[:, 5:]
 
-    # (1) (x,y,w,h) ---> (xmin,ymin,xmax,ymax)
-    pred_coor = np.concatenate([pred_xywh[:, :2]-pred_xywh[:, 2:]*0.5,
-                                pred_xywh[:, :2]-pred_xywh[:, 2:]*0.5],axis=-1)
+    # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
+    pred_coor = np.concatenate([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5,
+                                pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
+    # # (2) (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
+    org_h, org_w = org_img_shape
+    resize_ratio = min(input_size / org_w, input_size / org_h)
 
-    # (2)(xmin,ymin,xmax,ymax) --> (xmin_org,ymin_org,xmax_org,ymax_org)
-    org_h,org_w = org_img_shape
-    resize_ratio = min(input_size/org_w,input_size/org_h)
+    dw = (input_size - resize_ratio * org_w) / 2
+    dh = (input_size - resize_ratio * org_h) / 2
 
-    dw = (input_size-resize_ratio*org_w) / 2
-    dh = (input_size-resize_ratio*org_h) / 2
+    pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - dw) / resize_ratio
+    pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - dh) / resize_ratio
 
-    pred_coor[:, 0::2] = 1.0*(pred_coor[:, 0::2]-dw) / resize_ratio
-    pred_coor[:, 1::2] = 1.0*(pred_coor[:, 0::2]-dh) / resize_ratio
-
-    # (3)clip some boxes which are out of range
-    pred_coor = np.concatenate([np.maximum(pred_coor[:, :2],[0,0]),
-                                           np.minimum(pred_coor[:, :2],[org_w-1,org_h-1])],
-                               axis=-1)
-    invalid_mask = np.logical_or( (pred_coor[:, 0]>pred_coor[:, 2]),
-                                 (pred_coor[:, 1]>pred_coor[:,3]) )
+    # # (3) clip some boxes those are out of range
+    pred_coor = np.concatenate([np.maximum(pred_coor[:, :2], [0, 0]),
+                                np.minimum(pred_coor[:, 2:], [org_w - 1, org_h - 1])], axis=-1)
+    invalid_mask = np.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
     pred_coor[invalid_mask] = 0
 
-    # (4)discard some invalid boxes
-    bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:,2:4]-pred_coor[:,0:2],axis=-1))
-    scale_mask = np.logical_and((valid_scale[0]<bboxes_scale),(bboxes_scale<valid_scale[1]))
+    # # (4) discard some invalid boxes
+    bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:, 2:4] - pred_coor[:, 0:2], axis=-1))
+    scale_mask = np.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
 
-    # (5)discard some boxes with low scores
-    classes = np.argmax(pred_prob,axis=-1)
-    scores = pred_conf * pred_prob[np.arange(len(pred_coor)),classes]
+    # # (5) discard some boxes with low scores
+    classes = np.argmax(pred_prob, axis=-1)
+    scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes]
     score_mask = scores > score_threshold
-    mask = np.logical_and(scale_mask,score_mask)
-    coors,scores,classes = pred_coor[mask],scores[mask],classes[mask]
+    mask = np.logical_and(scale_mask, score_mask)
+    coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
 
-    return np.concatenate([coors,scores[:, np.newaxis],classes[:, np.newaxis]],axis=-1)
+    return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
 
 
 

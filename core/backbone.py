@@ -57,7 +57,7 @@ def darknet53(input_data,trainable):
 
         route_2 = input_data #26X26
         input_data = common.convolutional(input_data,filters_shape=(3,3,512,1024),
-                                          trainable=trainable,downsample=True)#第5次下采样
+                                          trainable=trainable,name='conv43',downsample=True)#第5次下采样
 
         for i in range(4):
             input_data = common.residual_block(input_data,1024,512,1024,trainable=trainable,

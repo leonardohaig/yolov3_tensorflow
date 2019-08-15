@@ -16,7 +16,8 @@ import tensorflow as tf
 import core.utils as utils
 import core.common as common
 import core.backbone as backbone
-import core.config as cfg
+from core.config import cfg
+
 
 class YOLOV3(object):
     '''
@@ -43,12 +44,12 @@ class YOLOV3(object):
         except:
             raise NotImplementedError("Can not build up yolov3 network!")
 
-        with tf.variable_scope('pred_sbbos'):
+        with tf.variable_scope('pred_sbbox'):
             self.pred_sbbox = self.decode(self.conv_sbbox,self.anchors[0],self.strides[0])
-        with tf.variable_scope('pred_mbbos'):
+        with tf.variable_scope('pred_mbbox'):
             self.pred_mbbox = self.decode(self.conv_mbbox,self.anchors[1],self.strides[1])
-        with tf.variable_scope('pred_lbbos'):
-            self.pred_sbbox = self.decode(self.conv_lbbox,self.anchors[2],self.strides[2])
+        with tf.variable_scope('pred_lbbox'):
+            self.pred_lbbox = self.decode(self.conv_lbbox,self.anchors[2],self.strides[2])
 
     def __build_network(self, input_data):
         '''
@@ -57,6 +58,8 @@ class YOLOV3(object):
         :param input_data:
         :return:
         '''
+
+        # 输入层进入 Darknet-53 网络后，得到了三个分支
         route_1, route_2, input_data = backbone.darknet53(input_data, self.trainable)  # 输出的尺度为52,26,13
 
         # ====predict one=======#
@@ -67,11 +70,13 @@ class YOLOV3(object):
         input_data = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, 'conv55')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
 
+        # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255]
         conv_lobj_branch = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, name='conv_lobj_branch')
         conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
 
         # 上采样
+        # 这里的 upsample 使用的是最近邻插值方法，这样的好处在于上采样过程不需要学习，从而减少了网络参数
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv57')
         input_data = common.upsample(input_data, name='upsample0', method=self.upsample_method)
 
@@ -87,11 +92,12 @@ class YOLOV3(object):
         input_data = common.convolutional(input_data, (3, 3, 256, 512), self.trainable, 'conv61')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv62')
 
+        # conv_mbbox 用于预测中等尺寸物体，shape = [None, 26, 26, 255]
         conv_mobj_branch = common.convolutional(input_data, (3, 3, 256, 512), self.trainable, name='conv_mobj_branch')
         conv_mbbox = common.convolutional(conv_mobj_branch, (1, 1, 512, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_mbbox', activate=False, bn=False)
 
-        input_data = common.convolutional(input_data, (1, 1256, 128), self.trainable, 'conv63')
+        input_data = common.convolutional(input_data, (1, 1,256, 128), self.trainable, 'conv63')
         input_data = common.upsample(input_data, name='upsample1', method=self.upsample_method)
 
         with tf.variable_scope('route_2'):
@@ -105,8 +111,9 @@ class YOLOV3(object):
         input_data = common.convolutional(input_data, (3, 3, 128, 256), self.trainable, 'conv67')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv68')
 
+        # conv_sbbox 用于预测小尺寸物体，shape = [None, 52, 52, 255]
         conv_sobj_branch = common.convolutional(input_data, (3, 3, 128, 256), self.trainable, name='conv_sobj_branch')
-        conv_sbbox = common.convolutional(conv_mobj_branch, (1, 1, 256, 3 * (self.num_class + 5)),
+        conv_sbbox = common.convolutional(conv_sobj_branch, (1, 1, 256, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_sbbox', activate=False, bn=False)
 
         return conv_lbbox, conv_mbbox, conv_sbbox
@@ -138,7 +145,7 @@ class YOLOV3(object):
         x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])
 
         xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
-        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, :], [batch_size, 1, 1, anchor_per_scale, 1])
+        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])
         xy_grid = tf.cast(xy_grid, tf.float32)
 
         pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride
