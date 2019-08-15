@@ -77,7 +77,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
     if gt_boxes is None:
         return image_paded
     else:#对图像缩放后，针对groundtruth box进行等比例缩放与平移
-        gt_boxes[:,[0,2]] = gt_boxes[:,[0,2]] *scale +dw;
+        gt_boxes[:,[0,2]] = gt_boxes[:,[0,2]] *scale +dw
         gt_boxes[:,[1,3]] = gt_boxes[:,[1,3]] *scale +dh
         return image_paded,gt_boxes
 

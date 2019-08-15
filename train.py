@@ -143,6 +143,9 @@ class YoloTrain(object):
             train_epoch_loss, test_epoch_loss = [], []
 
             for train_data in pbar:
+                image_tensor = tf.convert_to_tensor(train_data[0])
+                self.summary_writer.add_summary(tf.summary.image("image",image_tensor))
+
                 _, summary, train_step_loss, global_step_val = self.sess.run(
                     [train_op, self.write_op, self.loss, self.global_step], feed_dict={
                         self.input_data: train_data[0],
