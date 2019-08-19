@@ -34,15 +34,15 @@ class Dataset(object):
 
         self.train_input_sizes = cfg.TRAIN.INPUT_SIZE
         self.strides = np.array(cfg.YOLO.STRIDES)
-        self.classes = utils.read_class_names(cfg.YOLO.CLASSES)
+        self.classes = utils.read_class_names(cfg.YOLO.CLASSES) # dict类型，ID--name
         self.num_classes = len(self.classes)
         self.anchors = np.array(utils.get_anchors(cfg.YOLO.ANCHORS))
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
-        self.max_bbox_per_scale = 150
+        self.max_bbox_per_scale = 150#每个尺度最多检测目标数量
 
-        self.annotations = self.load_annotations(dataset_type)
-        self.num_samples = len(self.annotations)
-        self.num_batchs = int(np.ceil(self.num_samples / self.batch_size))
+        self.annotations = self.load_annotations(dataset_type)#训练/验证文件的每一行
+        self.num_samples = len(self.annotations)#训练集/验证集的数量
+        self.num_batchs = int(np.ceil(self.num_samples / self.batch_size))#训练用/验证用批次数量
         self.batch_count = 0
 
 
@@ -50,7 +50,7 @@ class Dataset(object):
         '''
 
         :param dataset_type:
-        :return:
+        :return:类型：list，值：文件路径中的每一行
         '''
         with open(self.annot_path, 'r') as f:
             txt = f.readlines()
@@ -61,9 +61,9 @@ class Dataset(object):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next__(self):# 返回下一批次的数据
 
-        with tf.device('/cpu:0'):
+        with tf.device('/cpu:0'):# 指定设备为cpu，意味着以下操作在cpu上完成
             self.train_input_size = random.choice(self.train_input_sizes)
             self.train_output_sizes = self.train_input_size // self.strides
 
@@ -86,7 +86,7 @@ class Dataset(object):
                     index = self.batch_count * self.batch_size + num
                     if index >= self.num_samples: index -= self.num_samples
                     annotation = self.annotations[index]
-                    image, bboxes = self.parse_annotation(annotation)
+                    image, bboxes = self.parse_annotation(annotation) # 读取图像，box(位置+类别)
                     label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
 
                     batch_image[num, :, :, :] = image
@@ -177,14 +177,14 @@ class Dataset(object):
     def parse_annotation(self, annotation):
         '''
 
-        :param annotation:
+        :param annotation:类型：list
         :return:
         '''
         line = annotation.split()
         image_path = line[0]
         if not os.path.exists(image_path):
             raise KeyError("%s does not exist ... " %image_path)
-        image = np.array(cv2.imread(image_path))
+        image = np.array(cv2.imread(image_path))#读取图像
         bboxes = np.array([list(map(int, box.split(','))) for box in line[1:]])
 
         if self.data_aug:
@@ -234,8 +234,8 @@ class Dataset(object):
         bbox_count = np.zeros((3,))
 
         for bbox in bboxes:
-            bbox_coor = bbox[:4]
-            bbox_class_ind = bbox[4]
+            bbox_coor = bbox[:4] # 位置
+            bbox_class_ind = bbox[4] # 类别
 
             onehot = np.zeros(self.num_classes, dtype=np.float)
             onehot[bbox_class_ind] = 1.0

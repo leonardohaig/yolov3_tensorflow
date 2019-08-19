@@ -23,12 +23,12 @@ def read_class_names(class_file_name):
     '''
     load classes's name from the given file
     :param class_file_name:
-    :return:
+    :return:返回值类型：dict,ID--类别名称
     '''
     names = {}
     with open(class_file_name,'r') as data:
         for ID,name in enumerate(data):
-            names[ID] = name.strip('\n')
+            names[ID] = name.strip('\n')#去除每一行结尾的换行符
 
     return names
 

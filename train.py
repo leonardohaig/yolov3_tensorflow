@@ -28,8 +28,8 @@ from core.config import cfg
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
-        self.classes = utils.read_class_names(cfg.YOLO.CLASSES)
-        self.num_classes = len(self.classes)
+        self.classes = utils.read_class_names(cfg.YOLO.CLASSES)#dict类型，ID---name
+        self.num_classes = len(self.classes)#检测类别数量
         self.learn_rate_init = cfg.TRAIN.LEARN_RATE_INIT
         self.learn_rate_end = cfg.TRAIN.LEARN_RATE_END
         self.first_stage_epochs = cfg.TRAIN.FISRT_STAGE_EPOCHS
@@ -37,13 +37,15 @@ class YoloTrain(object):
         self.warmup_periods = cfg.TRAIN.WARMUP_EPOCHS
         self.initial_weight = cfg.TRAIN.INITIAL_WEIGHT
         self.time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
-        self.moving_ave_decay = cfg.YOLO.MOVING_AVE_DECAY
-        self.max_bbox_per_scale = 150
-        self.train_logdir = "./data/log/train"
+        self.moving_ave_decay = cfg.YOLO.MOVING_AVE_DECAY #滑动平均时的decay值
+        self.max_bbox_per_scale = 150 #每个尺度上检测目标的数量
+        self.train_logdir = "./data/log/train" # 训练日志保存路径
         self.trainset = Dataset('train')
         self.testset = Dataset('test')
         self.steps_per_period = len(self.trainset)
-        self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+        self.config = tf.ConfigProto(allow_soft_placement=True)
+        #self.config.gpu_options.per_process_gpu_memory_fraction = 0.2  # 占用40%显存
+        self.sess = tf.Session(config=self.config)
 
         with tf.name_scope('define_input'):
             self.input_data = tf.placeholder(dtype=tf.float32, name='input_data')
@@ -53,7 +55,7 @@ class YoloTrain(object):
             self.true_sbboxes = tf.placeholder(dtype=tf.float32, name='sbboxes')
             self.true_mbboxes = tf.placeholder(dtype=tf.float32, name='mbboxes')
             self.true_lbboxes = tf.placeholder(dtype=tf.float32, name='lbboxes')
-            self.trainable = tf.placeholder(dtype=tf.bool, name='training')
+            self.trainable = tf.placeholder(dtype=tf.bool, name='training') # 占位符，对训练时，为True，验证时为False
 
         with tf.name_scope("define_loss"):
             self.model = YOLOV3(self.input_data, self.trainable)
@@ -61,7 +63,7 @@ class YoloTrain(object):
             self.giou_loss, self.conf_loss, self.prob_loss = self.model.compute_loss(
                 self.label_sbbox, self.label_mbbox, self.label_lbbox,
                 self.true_sbboxes, self.true_mbboxes, self.true_lbboxes)
-            self.loss = self.giou_loss + self.conf_loss + self.prob_loss
+            self.loss = self.giou_loss + self.conf_loss + self.prob_loss # 损失函数
 
         with tf.name_scope('learn_rate'):
             self.global_step = tf.Variable(1.0, dtype=tf.float64, trainable=False, name='global_step')
@@ -79,7 +81,7 @@ class YoloTrain(object):
             global_step_update = tf.assign_add(self.global_step, 1.0)
 
         with tf.name_scope("define_weight_decay"):
-            moving_ave = tf.train.ExponentialMovingAverage(self.moving_ave_decay).apply(tf.trainable_variables())
+            moving_ave = tf.train.ExponentialMovingAverage(self.moving_ave_decay).apply(tf.trainable_variables())#给模型中的变量创建滑动平均（滑动平均，作用于模型中的变量）
 
         with tf.name_scope("define_first_stage_train"):
             self.first_stage_trainable_var_list = []
@@ -144,10 +146,10 @@ class YoloTrain(object):
 
             for train_data in pbar:
                 image_tensor = tf.convert_to_tensor(train_data[0])
-                self.summary_writer.add_summary(tf.summary.image("image",image_tensor))
-
-                _, summary, train_step_loss, global_step_val = self.sess.run(
-                    [train_op, self.write_op, self.loss, self.global_step], feed_dict={
+                tf.summary.image("image",image_tensor)
+                self.write_op = tf.summary.merge_all()
+                _, summary, train_step_loss, global_step_val, _ = self.sess.run(
+                    [train_op, self.write_op, self.loss, self.global_step, image_tensor], feed_dict={
                         self.input_data: train_data[0],
                         self.label_sbbox: train_data[1],
                         self.label_mbbox: train_data[2],
