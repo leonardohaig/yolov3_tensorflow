@@ -47,7 +47,7 @@ def darknet53(input_data,trainable):
             input_data = common.residual_block(input_data,256,128,256,trainable=trainable,
                                                name='residual%d'%(i+3))#输出厚度为256
 
-        route_1 = input_data #52X52
+        route_1 = input_data #52X52 52来源：输入数据大小为416X416，至此，经过了3次下采样，每下采样一次，大小缩小一半，故3次下采样后，大小为416/(2^3)=52
         input_data = common.convolutional(input_data,filters_shape=(3,3,256,512),
                                           trainable=trainable,name='conv26',downsample=True)#第4次下采样
 
@@ -57,7 +57,7 @@ def darknet53(input_data,trainable):
 
         route_2 = input_data #26X26
         input_data = common.convolutional(input_data,filters_shape=(3,3,512,1024),
-                                          trainable=trainable,name='conv43',downsample=True)#第5次下采样
+                                          trainable=trainable,name='conv43',downsample=True)#第5次下采样,该次下采样之后，input_data.shape=(?,13,13,1024).?与批次输入的图片数量有关
 
         for i in range(4):
             input_data = common.residual_block(input_data,1024,512,1024,trainable=trainable,

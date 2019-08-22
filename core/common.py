@@ -19,14 +19,14 @@ def convolutional(input_data, filters_shape,
                   downsample=False,activate=True,bn=True):
     '''
     yolo v3 中的 卷积层=卷积+BN+LeakyReLU
-    :param input_data:
-    :param filters_shape:
-    :param trainable:
-    :param name:
-    :param downsample:
-    :param activate:
-    :param bn:
-    :return:
+    :param input_data:输入的批数据 [batch, in_height, in_width, in_channels]
+    :param filters_shape:卷积核 [filter_height, filter_width, in_channels, out_channels]
+    :param trainable:训练or验证。作用于批规范化选项，训练时，为True，验证时为False
+    :param name:卷积操作名称（限定作用域，主要是用来限定weight和bias的作用域）
+    :param downsample:下采样方式
+    :param activate:对输出是否采用激活函数进行激活
+    :param bn:是否批规范化
+    :return: feature map [batch, height, width, channels]
     '''
     with tf.variable_scope(name):
         if downsample:
@@ -39,6 +39,7 @@ def convolutional(input_data, filters_shape,
             strides = (1,1,1,1)
             padding = 'SAME'
 
+        # 获取变量值(如果该变量不存在则创建该变量，下次直接获取变量值，类似于c++中的static变量，后面的bias同理)
         weight = tf.get_variable(name='weight',dtype=tf.float32,trainable=True,
                                  shape=filters_shape,initializer=tf.random_normal_initializer(stddev=0.01))
 

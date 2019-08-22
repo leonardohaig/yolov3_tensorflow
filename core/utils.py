@@ -86,11 +86,11 @@ def image_preprocess(image,target_size,gt_boxes=None):
 def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label=True):
     '''
     将检测出的目标在图像上用矩形框画出，同时标出其标签及置信度
-    :param image:
-    :param bboxes: [x_min,y_min,x_max,y_max,cls_id] format coordinates.
-    :param classes:
-    :param show_label:
-    :return:
+    :param image:需要绘制结果的图像
+    :param bboxes: [x_min,y_min,x_max,y_max,prob,cls_id] format coordinates.
+    :param classes:类别名称列表
+    :param show_label:是否显示物体类别名称
+    :return:绘制了矩形框结果的图像，图像格式和输入图像格式一致(输入为BGR，输入也为BGR；输入为RGB，输出也为RGB格式，)
     '''
     num_classes = len(classes)
     image_h,image_w,_ = image.shape
@@ -103,7 +103,7 @@ def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label
     random.seed(None)
 
     for i,bbox in enumerate(bboxes):
-        coor = np.array(bbox[:4],dtype=np.int32)
+        coor = np.array(bbox[:4],dtype=np.int32)#[xmin,ymin,xmax,ymax]
         fontScale = 0.5
         score = bbox[4]
         class_ind = int(bbox[5])
@@ -172,7 +172,7 @@ def read_pb_return_tensors(graph,pb_file,return_elements):
 
 def nms(bboxes,iou_threshold,sigma=0.3,method='nms'):
     '''
-
+    通过nms过滤掉重合的矩形框
     :param bboxes: (xmin,ymin,xmax,ymax,score,class)
     :param iou_threshold:
     :param sigma:
@@ -212,17 +212,17 @@ def nms(bboxes,iou_threshold,sigma=0.3,method='nms'):
 
 def postprocess_boxes(pred_bbox,org_img_shape,input_size,score_threshold):
     '''
-
+    对检测结果进行处理，过滤掉置信度低于阈值、不在图像范围内的矩形框，返回处理后的结果
     :param pred_bbox:
-    :param org_img_shape:
-    :param input_size:
-    :param score_threshold:
-    :return:
+    :param org_img_shape:检测时，输入所用图像大小
+    :param input_size:yolo_v3 推断时所采用的图像大小，416X416
+    :param score_threshold:置信度阈值
+    :return:[xmin,ymin,xmax,ymax,prob,classid]
     '''
     valid_scale = [0, np.inf]
     pred_bbox = np.array(pred_bbox)
 
-    pred_xywh = pred_bbox[:, 0:4]
+    pred_xywh = pred_bbox[:, 0:4]#4列数据内容为：Center_x,Center_y,width,height(中心点坐标+宽高)
     pred_conf = pred_bbox[:, 4]
     pred_prob = pred_bbox[:, 5:]
 
@@ -236,8 +236,8 @@ def postprocess_boxes(pred_bbox,org_img_shape,input_size,score_threshold):
     dw = (input_size - resize_ratio * org_w) / 2
     dh = (input_size - resize_ratio * org_h) / 2
 
-    pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - dw) / resize_ratio
-    pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - dh) / resize_ratio
+    pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - dw) / resize_ratio#计算xmin和xmax在输入图像上的坐标
+    pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - dh) / resize_ratio#计算ymin和ymax在输入图像上的坐标
 
     # # (3) clip some boxes those are out of range
     pred_coor = np.concatenate([np.maximum(pred_coor[:, :2], [0, 0]),

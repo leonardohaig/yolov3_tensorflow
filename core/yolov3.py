@@ -61,6 +61,10 @@ class YOLOV3(object):
 
         # 输入层进入 Darknet-53 网络后，得到了三个分支
         route_1, route_2, input_data = backbone.darknet53(input_data, self.trainable)  # 输出的尺度为52,26,13
+        # route_1.shape=(?,52,52,256)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
+        # route_2.shape=(?,26,26,512)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
+        # route_3.shape=(?,13,13,1024)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
+        # ?具体大小与该批次输入的图片数量有关
 
         # ====predict one=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
@@ -70,7 +74,7 @@ class YOLOV3(object):
         input_data = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, 'conv55')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
 
-        # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255]
+        # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255],255=3*(80+5)
         conv_lobj_branch = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, name='conv_lobj_branch')
         conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
@@ -82,7 +86,7 @@ class YOLOV3(object):
 
         # 连接
         with tf.variable_scope('route_1'):
-            input_data = tf.concat([input_data, route_2], axis=-1)
+            input_data = tf.concat([input_data, route_2], axis=-1)#input_data.shape(?,26,26,768),768=256(input_data)+512(route_2),第4维的拼接
 
         # ====predict two=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
@@ -101,7 +105,7 @@ class YOLOV3(object):
         input_data = common.upsample(input_data, name='upsample1', method=self.upsample_method)
 
         with tf.variable_scope('route_2'):
-            input_data = tf.concat([input_data, route_1], axis=-1)
+            input_data = tf.concat([input_data, route_1], axis=-1)#input_data.shape(?,52,52,384),384=128(input_data)+256(route_1),第4维的拼接
 
         # ====predict three=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
@@ -134,12 +138,13 @@ class YOLOV3(object):
         anchor_per_scale = len(anchors)
 
         conv_output = tf.reshape(conv_output,
-                                 (batch_size, output_size, output_size, anchor_per_scale, 5 + self.num_class))
+                                 (batch_size, output_size, output_size, anchor_per_scale, 5 + self.num_class))#可以这样理解，把输入的最后一维255拆开为： 3*(80+5)
+        #意味着，输入从4维，增加了一维，如果输入为(1,52,52,255),经过该函数后，变为(1,52,52,3,85)
 
-        conv_raw_dxdy = conv_output[:, :, :, :, 0:2]
-        conv_raw_dwdh = conv_output[:, :, :, :, 2:4]
-        conv_raw_conf = conv_output[:, :, :, :, 4:5]
-        conv_raw_prob = conv_output[:, :, :, :, 5:]
+        conv_raw_dxdy = conv_output[:, :, :, :, 0:2]#应该表示 中心点？
+        conv_raw_dwdh = conv_output[:, :, :, :, 2:4]#宽度、高度
+        conv_raw_conf = conv_output[:, :, :, :, 4:5]#置信度
+        conv_raw_prob = conv_output[:, :, :, :, 5:]#每一类别的概率
 
         y = tf.tile(tf.range(output_size, dtype=tf.int32)[:, tf.newaxis], [1, output_size])
         x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])

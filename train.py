@@ -24,7 +24,7 @@ from core.dataset import Dataset
 from core.yolov3 import YOLOV3
 from core.config import cfg
 
-
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
@@ -118,6 +118,7 @@ class YoloTrain(object):
             tf.summary.scalar("conf_loss", self.conf_loss)
             tf.summary.scalar("prob_loss", self.prob_loss)
             tf.summary.scalar("total_loss", self.loss)
+            #tf.summary.image("input_image", self.input_data)
 
             logdir = "./data/log/"
             if os.path.exists(logdir): shutil.rmtree(logdir)#递归删除文件夹下的所有子文件夹和子文件

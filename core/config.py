@@ -19,8 +19,8 @@ cfg                             = __C
 
 #YOLO options
 __C.YOLO                        = edict()
-#__C.YOLO.CLASSES                = './data/classes/coco.names' #类别名称存放路径
-__C.YOLO.CLASSES                = './data/classes/raccoon.names' #类别名称存放路径
+__C.YOLO.CLASSES                = './data/classes/coco.names' #类别名称存放路径
+#__C.YOLO.CLASSES                = './data/classes/raccoon.names' #类别名称存放路径
 __C.YOLO.ANCHORS                = './data/anchors/basline_anchors.txt' # anchors比例存放路径
 __C.YOLO.MOVING_AVE_DECAY       = 0.995 # 滑动平均时的decay值
 __C.YOLO.STRIDES                = [8,16,32]
@@ -35,9 +35,9 @@ __C.YOLO.DEMO_WEIGHT            = './checkpoint/yolov3_coco_demo.ckpt'
 __C.TRAIN                       = edict()
 #__C.TRAIN.ANNOT_PATH            = './data/dataset/voc_train.txt'
 __C.TRAIN.ANNOT_PATH            = './data/classes/train_yoloTF.txt' # 训练集各图像及对应的标签、目标位置
-__C.TRAIN.BATCH_SIZE            = 6
+__C.TRAIN.BATCH_SIZE            = 1
 __C.TRAIN.INPUT_SIZE            = [320,352,384,416,448,480,512,544,576,608]
-__C.TRAIN.DATA_AUG              = True # 是否进行数据变换（对原始图像进行裁剪、平移等变换）
+__C.TRAIN.DATA_AUG              = True # 是否进行数据增强，data augmentation,以扩大数据集（对原始图像进行裁剪、平移等变换）
 __C.TRAIN.LEARN_RATE_INIT       = 1e-4 #初始学习率
 __C.TRAIN.LEARN_RATE_END        = 1e-6 #终学习率
 __C.TRAIN.WARMUP_EPOCHS         = 2
@@ -46,12 +46,12 @@ __C.TRAIN.SECOND_STAGE_EPOCHS   = 30 #终迭代次数
 __C.TRAIN.INITIAL_WEIGHT        = './checkpoint/yolov3_coco_demo.ckpt'#初始权重文件路径
 
 #Test options
-__C.TEST                        = edict();
+__C.TEST                        = edict()
 #__C.TEST.ANNOT_PATH             = './data/dataset/voc_test.txt'
 __C.TEST.ANNOT_PATH             = './data/classes/test_yoloTF.txt' # 验证集各图像及对应的标签、目标位置
-__C.TEST.BATCH_SIZE             = 2
+__C.TEST.BATCH_SIZE             = 1
 __C.TEST.INPUT_SIZE             = 544
-__C.TEST.DATA_AUG               = False # 是否进行数据变换（对原始图像进行裁剪、平移等变换）
+__C.TEST.DATA_AUG               = False # 是否进行数据增强（对原始图像进行裁剪、平移等变换）
 __C.TEST.WRITE_IMAGE            = True
 __C.TEST.WRITE_IMAGE_PATH       = './data/detection/'
 __C.TEST.WRITE_IMAGE_SHOW_LABEL = False

@@ -3,6 +3,10 @@
 
 #============================#
 #Program:convert_weight.py
+#       读取原始的权重，将其中的名称转换为和代码中一致的名称,并保存，方便代码调用权重文件。
+#       其中重要的一步操作是将batchsize大小设置为1后保存，具体位置为
+#               with tf.name_scope('input'):
+#                   input_data = tf.placeholder(dtype=tf.float32, shape=(1, 416, 416, 3), name='input_data')
 #Date:2019.08.14
 #Author:liheng
 #Version:V1.0
@@ -14,6 +18,7 @@ import argparse
 import tensorflow as tf
 from core.yolov3 import YOLOV3
 from core.config import cfg
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--train_from_coco", action='store_true')
 flag = parser.parse_args()
@@ -29,7 +34,7 @@ tf.Graph().as_default()
 load = tf.train.import_meta_graph(org_weights_path + '.meta')
 with tf.Session() as sess:
     load.restore(sess, org_weights_path)
-    for var in tf.global_variables():
+    for id,var in enumerate(tf.global_variables()):
         var_name = var.op.name
         var_name_mess = str(var_name).split('/')
         var_shape = var.shape
@@ -37,14 +42,14 @@ with tf.Session() as sess:
             if (var_name_mess[-1] not in ['weights', 'gamma', 'beta', 'moving_mean', 'moving_variance']) or \
                     (var_name_mess[1] == 'yolo-v3' and (var_name_mess[-2] in preserve_org_names)): continue
         org_weights_mess.append([var_name, var_shape])
-        print("=> " + str(var_name).ljust(50), var_shape)
+        print("=> " + str(id),str(var_name).ljust(50), var_shape)
 print()
 tf.reset_default_graph()
 
 cur_weights_mess = []
 tf.Graph().as_default()
 with tf.name_scope('input'):
-    input_data = tf.placeholder(dtype=tf.float32, shape=(1, 416, 416, 3), name='input_data')
+    input_data = tf.placeholder(dtype=tf.float32, shape=(1, 416, 416, 3), name='input_data')#输入为1张416X416的彩色图片
     training = tf.placeholder(dtype=tf.bool, name='trainable')
 model = YOLOV3(input_data, training)
 for var in tf.global_variables():
@@ -62,6 +67,9 @@ cur_weights_num = len(cur_weights_mess)
 if cur_weights_num != org_weights_num:
     raise RuntimeError
 
+#确定原始权重文件中的名称 对应的 现在代码中的名称
+print('='*50)
+print('Rename the weights name')
 print('=> Number of weights that will rename:\t%d' % cur_weights_num)
 cur_to_org_dict = {}
 for index in range(org_weights_num):
