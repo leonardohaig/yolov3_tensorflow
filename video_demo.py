@@ -16,12 +16,13 @@ import numpy as np
 import core.utils as utils
 import tensorflow as tf
 
-
+# 张量名称
 return_elements = ["input/input_data:0", "pred_sbbox/concat_2:0", "pred_mbbox/concat_2:0", "pred_lbbox/concat_2:0"]
 pb_file         = "./yolov3_coco.pb"
 video_path      = "/media/liheng/0F521CCC0F521CCC/7.29/ADAS_usb4mm-20190729-173452.avi"
+bSaveResult     = False  # 是否保存结果视频
 # video_path      = 0
-num_classes     = 80
+num_classes     = 80 # 检测目标数量
 input_size      = 416
 graph           = tf.Graph()
 return_tensors  = utils.read_pb_return_tensors(graph, pb_file, return_elements)
@@ -29,10 +30,15 @@ return_tensors  = utils.read_pb_return_tensors(graph, pb_file, return_elements)
 
 with tf.Session(graph=graph) as sess:
     vid = cv2.VideoCapture(video_path)
+    if bSaveResult:
+        videoWriter = cv2.VideoWriter(video_path+'_res.avi',
+                                      cv2.VideoWriter_fourcc(*'MJPG'),
+                                      20,
+                                      (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))))
 
     nWaitTime = 1
     nFrameIdx = 0
-    cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+    #cv2.namedWindow("result", cv2.WINDOW_NORMAL)
     while True:
         return_value, frame = vid.read()
         nFrameIdx += 1
@@ -69,6 +75,9 @@ with tf.Session(graph=graph) as sess:
         info = "Frame:%d Fps: %.2f time: %.2f ms" %(nFrameIdx,1.0/exec_time,1000*exec_time)
         cv2.putText(result, info, (0,25), cv2.FONT_HERSHEY_SIMPLEX,1.0, (0, 0, 255), 2, lineType=cv2.LINE_AA)
         cv2.imshow("result", result)
+        if bSaveResult:
+            videoWriter.write(result)
+
 
         key = cv2.waitKey(nWaitTime)
         if 27==key:# ESC

@@ -44,8 +44,10 @@ class YOLOV3(object):
         except:
             raise NotImplementedError("Can not build up yolov3 network!")
 
-        with tf.variable_scope('pred_sbbox'):
-            self.pred_sbbox = self.decode(self.conv_sbbox,self.anchors[0],self.strides[0])
+        # 对输出加上name属性，这样在固化模型，生成.pb文件时，可以找到指定的节点
+
+        with tf.variable_scope('pred_sbbox'):# 检测小目标，和anchor[0]对应
+            self.pred_sbbox = self.decode(self.conv_sbbox,self.anchors[0],self.strides[0])# self.conv_sbbox.shaep:(batch_size,52,52,255)，strides[0]=8,   52*8=416(416/52=8)，一个特征点代表8*8的图像，检测小目标，对应的self.anchors[0]中的anchor宽高值必须是小目标的
         with tf.variable_scope('pred_mbbox'):
             self.pred_mbbox = self.decode(self.conv_mbbox,self.anchors[1],self.strides[1])
         with tf.variable_scope('pred_lbbox'):
@@ -143,22 +145,36 @@ class YOLOV3(object):
 
         conv_raw_dxdy = conv_output[:, :, :, :, 0:2]#应该表示 中心点？
         conv_raw_dwdh = conv_output[:, :, :, :, 2:4]#宽度、高度
-        conv_raw_conf = conv_output[:, :, :, :, 4:5]#置信度
-        conv_raw_prob = conv_output[:, :, :, :, 5:]#每一类别的概率
+        conv_raw_conf = conv_output[:, :, :, :, 4:5]#含有目标的置信度
+        conv_raw_prob = conv_output[:, :, :, :, 5:]#每一类别的概率(如80个类别的各个概率)
 
+        # x.shape / y.shape : (52,52) or (26,26) or (13,13)
+        # x,y可以理解为 feature map 的坐标值，每个grid cell 左上角的横、纵坐标值,或者理解为画网格
         y = tf.tile(tf.range(output_size, dtype=tf.int32)[:, tf.newaxis], [1, output_size])
         x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])
 
-        xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
-        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])
-        xy_grid = tf.cast(xy_grid, tf.float32)
+        # 将x,y离散的坐标值合并在一起，方便计算，然后进行维度扩展，增加维度以和conv_output维度保持一致，方便数学运算求解
+        xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)#(52,52,2) or (26,26,2) or (13,13,2),2来源于坐标有两个：x，y
+        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])# 对张量进行扩展，扩展完毕后，shape:(?,52,52,3,2) or (?,26,26,3,2) or (?,13,13,3,2),? 与batch_size大小有关，3表示每一个特征图上预测3个anchor
+        xy_grid = tf.cast(xy_grid, tf.float32)# 转换为float32类型
 
-        pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride
+        # 矩形框坐标值从神经网络预测值(conv_raw_dxdy)转换为在feature_map上的位置，然后在转换到相对于416X416尺寸的图像上的位置
+        # 该步骤为矩形框位置的预测，公式：
+        # b_x = σ(t_x) + c_x
+        # b_y = σ(t_y) + c_y
+        # b_w = p_w * e^(t_w)
+        # b_h = p_h * e^(t_h)
+        # c_x,c_y是feature map中grid cell的左上角坐标;t_x,t_y是神经网络预测的边框中心坐标；t_w,t_h为预测的宽高
+        # p_w,p_h是预设的anchor box映射到feature map中的宽和高，对于anchor=[10,13],
+        # 映射到52*52的feature map上，其值为[10/8,13/8]=[1.25,1.625],其他类似。
+        # 这就是data/anchors目录下，basline_anchors.txt文件的值比coco_anchors.txt小的原因，前者是后者经过映射后的值
+        pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride #  *stride操作之后得到的坐标是相对于416X416尺寸的。
         pred_wh = (tf.exp(conv_raw_dwdh) * anchors) * stride
         pred_xywh = tf.concat([pred_xy, pred_wh], axis=-1)
 
-        pred_conf = tf.sigmoid(conv_raw_conf)
-        pred_prob = tf.sigmoid(conv_raw_prob)
+        # 经过sigmoid函数后，其值约束在0~1之间
+        pred_conf = tf.sigmoid(conv_raw_conf)# 存在目标的概率
+        pred_prob = tf.sigmoid(conv_raw_prob)# 各个物体的概率
 
         return tf.concat([pred_xywh, pred_conf, pred_prob], axis=-1)
 
@@ -240,10 +256,10 @@ class YOLOV3(object):
     def loss_layer(self, conv, pred, label, bboxes, anchors, stride):
         '''
 
-        :param conv:
-        :param pred:
-        :param label:
-        :param bboxes:
+        :param conv:网络计算得到的结果
+        :param pred:对conv进行decode得到的结果
+        :param label:真实值？和pred.shape一致(batch_size,feature_map_size,feature_map_size,3,5+num_class)
+        :param bboxes:真实值？shape(batch_size,?/150,4)150表示最多检测150个目标，4表示边框的坐标信息
         :param anchors:
         :param stride:
         :return:
@@ -252,7 +268,7 @@ class YOLOV3(object):
         conv_shape = tf.shape(conv)
         batch_size = conv_shape[0]
         output_size = conv_shape[1]
-        input_size = stride * output_size
+        input_size = stride * output_size # 该值和图像大小一致，非原始图像大小，而是dataset.py中随机选择的图像大小
         conv = tf.reshape(conv, (batch_size, output_size, output_size,
                                  self.anchor_per_scale, 5 + self.num_class))
         conv_raw_conf = conv[:, :, :, :, 4:5]
@@ -262,22 +278,26 @@ class YOLOV3(object):
         pred_conf = pred[:, :, :, :, 4:5]
 
         label_xywh = label[:, :, :, :, 0:4]
-        respond_bbox = label[:, :, :, :, 4:5]
+        respond_bbox = label[:, :, :, :, 4:5]# 置信度，判断网格内有无物体
         label_prob = label[:, :, :, :, 5:]
 
         giou = tf.expand_dims(self.bbox_giou(pred_xywh, label_xywh), axis=-1)
         input_size = tf.cast(input_size, tf.float32)
 
+        #GIou loss
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
         giou_loss = respond_bbox * bbox_loss_scale * (1 - giou)
 
+        # 找出与真实框 iou 值最大的预测框
         iou = self.bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
         max_iou = tf.expand_dims(tf.reduce_max(iou, axis=-1), axis=-1)
 
+        # 如果最大的 iou 小于阈值，那么认为该预测框不包含物体,则为背景框
         respond_bgd = (1.0 - respond_bbox) * tf.cast(max_iou < self.iou_loss_thresh, tf.float32)
 
+        # 置信度损失
         conf_focal = self.focal(respond_bbox, pred_conf)
-
+        # 计算置信度的损失（我们希望假如该网格中包含物体，那么网络输出的预测框置信度为 1，无物体时则为 0
         conf_loss = conf_focal * (
                 respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
                 +

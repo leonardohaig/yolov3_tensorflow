@@ -230,7 +230,7 @@ class Dataset(object):
         '''
         label = [np.zeros((self.train_output_sizes[i], self.train_output_sizes[i], self.anchor_per_scale,
                            5 + self.num_classes)) for i in range(3)]
-        bboxes_xywh = [np.zeros((self.max_bbox_per_scale, 4)) for _ in range(3)]
+        bboxes_xywh = [np.zeros((self.max_bbox_per_scale, 4)) for _ in range(3)] # 这里 4 来源于坐标有 x,y,w,h 四个值（可以理解为4列），
         bbox_count = np.zeros((3,))
 
         for bbox in bboxes:
@@ -241,29 +241,30 @@ class Dataset(object):
             onehot[bbox_class_ind] = 1.0
             uniform_distribution = np.full(self.num_classes, 1.0 / self.num_classes)
             deta = 0.01
-            smooth_onehot = onehot * (1 - deta) + deta * uniform_distribution
+            smooth_onehot = onehot * (1 - deta) + deta * uniform_distribution# 应是将置信度1.0进行平滑处理？
 
-            bbox_xywh = np.concatenate([(bbox_coor[2:] + bbox_coor[:2]) * 0.5, bbox_coor[2:] - bbox_coor[:2]], axis=-1)
-            bbox_xywh_scaled = 1.0 * bbox_xywh[np.newaxis, :] / self.strides[:, np.newaxis]
+            bbox_xywh = np.concatenate([(bbox_coor[2:] + bbox_coor[:2]) * 0.5, bbox_coor[2:] - bbox_coor[:2]], axis=-1)# 将边框的顶点坐标转换为中心点+宽高的形式
+            bbox_xywh_scaled = 1.0 * bbox_xywh[np.newaxis, :] / self.strides[:, np.newaxis] # 将边框坐标映射到3个feature map上
 
             iou = []
             exist_positive = False
-            for i in range(3):
-                anchors_xywh = np.zeros((self.anchor_per_scale, 4))
-                anchors_xywh[:, 0:2] = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32) + 0.5
-                anchors_xywh[:, 2:4] = self.anchors[i]
+            for i in range(3): # 3种网络尺寸
+                anchors_xywh = np.zeros((self.anchor_per_scale, 4))#每个尺度下每个点预测3个anchor box，4表示中心位置和宽高
+                anchors_xywh[:, 0:2] = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32) + 0.5# 中心点坐标，来源于ground truth 的在3个feature map上的映射
+                anchors_xywh[:, 2:4] = self.anchors[i] #宽高来源于预设的anchor在feature map上的映射
 
                 iou_scale = self.bbox_iou(bbox_xywh_scaled[i][np.newaxis, :], anchors_xywh)
                 iou.append(iou_scale)
-                iou_mask = iou_scale > 0.3
+                iou_mask = iou_scale > 0.3 # 判断其和真实的box的iou是否>0.3
 
-                if np.any(iou_mask):
-                    xind, yind = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32)
+                if np.any(iou_mask):# 针对 iou > 0.3 的 anchor 框进行处理
+                    xind, yind = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32)# 中心点坐标 #根据真实框的坐标信息来计算所属网格左上角的位置
 
-                    label[i][yind, xind, iou_mask, :] = 0
-                    label[i][yind, xind, iou_mask, 0:4] = bbox_xywh
-                    label[i][yind, xind, iou_mask, 4:5] = 1.0
-                    label[i][yind, xind, iou_mask, 5:] = smooth_onehot
+                    label[i][yind, xind, iou_mask, :] = 0 # 将无关的feature map上置0，
+                    # 填充真实框的中心位置和宽高
+                    label[i][yind, xind, iou_mask, 0:4] = bbox_xywh # TODO：此处应是bbox_xywh_scaled[i]吧? 经过查看后面计算损失函数部分，应该是直接利用坐标值，而非缩放、归一化后的坐标值
+                    label[i][yind, xind, iou_mask, 4:5] = 1.0 # 设定置信度为 1.0，表明该网格包含物体
+                    label[i][yind, xind, iou_mask, 5:] = smooth_onehot#平滑处理
 
                     bbox_ind = int(bbox_count[i] % self.max_bbox_per_scale)
                     bboxes_xywh[i][bbox_ind, :4] = bbox_xywh

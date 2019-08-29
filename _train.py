@@ -2,9 +2,11 @@
 #coding=utf-8
 
 #============================#
-#Program:train.py
-#       训练模块
-#Date:2019.06.20
+#Program:_train.py
+#       训练模块,尝试对原训练模块进行修改，以增加下列内容：
+#       1.自动加载上次训练结果，恢复训练
+#       2.tf.summary 加入图像展示
+#Date:2019.08.28
 #Author:liheng
 #Version:V1.0
 #Reference:https://github.com/YunYang1994/tensorflow-yolov3/blob/master/train.py
@@ -24,7 +26,7 @@ from core.dataset import Dataset
 from core.yolov3 import YOLOV3
 from core.config import cfg
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
@@ -39,14 +41,14 @@ class YoloTrain(object):
         self.time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
         self.moving_ave_decay = cfg.YOLO.MOVING_AVE_DECAY #滑动平均时的decay值
         self.max_bbox_per_scale = 150 #每个尺度上检测目标的数量
-        self.train_logdir = "./data/log/train" # 训练日志保存路径
+        self.train_logdir = "./data/log/" # 训练日志保存路径
         self.trainset = Dataset('train')
         self.testset = Dataset('test')
         self.steps_per_period = len(self.trainset)
         self.config = tf.ConfigProto(allow_soft_placement=True)
-        #self.config.gpu_options.per_process_gpu_memory_fraction = 0.2  # 占用40%显存
+        #self.config.gpu_options.per_process_gpu_memory_fraction = 0.2  # 占用20%显存
         self.sess = tf.Session(config=self.config)
-
+        self.ckpt_savePath = './checkpoint/raccoon_checkpoint' # ckpt文件保存路径
         with tf.name_scope('define_input'):
             self.input_data = tf.placeholder(dtype=tf.float32, name='input_data')
             self.label_sbbox = tf.placeholder(dtype=tf.float32, name='label_sbbox')
@@ -112,7 +114,7 @@ class YoloTrain(object):
 
         with tf.name_scope('loader_and_saver'):
             self.loader = tf.train.Saver(self.net_var)
-            self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=10)
+            self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=5) # 仅保留最近5次的结果
 
         with tf.name_scope('summary'):
             tf.summary.scalar("learn_rate", self.learn_rate)
@@ -120,16 +122,17 @@ class YoloTrain(object):
             tf.summary.scalar("conf_loss", self.conf_loss)
             tf.summary.scalar("prob_loss", self.prob_loss)
             tf.summary.scalar("total_loss", self.loss)
-            #tf.summary.image("input_image", self.input_data)
+            tf.summary.image("input_image", self.input_data)
 
-            logdir = "./data/log/"
-            if os.path.exists(logdir): shutil.rmtree(logdir)#递归删除文件夹下的所有子文件夹和子文件
-            os.mkdir(logdir)
+            if os.path.exists(self.train_logdir): shutil.rmtree(self.train_logdir)#递归删除文件夹下的所有子文件夹和子文件
+            os.mkdir(self.train_logdir)
             self.write_op = tf.summary.merge_all()#将所有summary全部保存到磁盘,以便tensorboard显示
-            self.summary_writer = tf.summary.FileWriter(logdir, graph=self.sess.graph)#指定一个文件用来保存图
+            self.summary_writer = tf.summary.FileWriter(self.train_logdir, graph=self.sess.graph)#指定一个文件用来保存图
 
     def train(self):
         self.sess.run(tf.global_variables_initializer())
+        # 寻找是否存在已经训练的coco权重
+        # 加载上次已经训练后的权重
         try:
             print('=> Restoring weights from: %s ... ' % self.initial_weight)
             self.loader.restore(self.sess, self.initial_weight)
@@ -137,6 +140,16 @@ class YoloTrain(object):
             print('=> %s does not exist !!!' % self.initial_weight)
             print('=> Now it starts to train YOLOV3 from scratch ...')
             self.first_stage_epochs = 0
+
+        try:
+            print('=> Restoring weights from last trained file ...')
+            last_checkpoint = tf.train.latest_checkpoint(self.ckpt_savePath)  # 会自动找到最近保存的变量文件
+            self.loader.restore(self.sess, last_checkpoint)
+        except:
+            print('=> Can not find last trained file !!!')
+            print('=> Now it starts to train YOLOV3 from scratch ...')
+
+        print('=> Start train,total epoch is:%d' % (self.first_stage_epochs + self.second_stage_epochs) )
 
         for epoch in range(1, 1 + self.first_stage_epochs + self.second_stage_epochs):
             if epoch <= self.first_stage_epochs:
@@ -148,11 +161,8 @@ class YoloTrain(object):
             train_epoch_loss, test_epoch_loss = [], []
 
             for train_data in pbar:
-                image_tensor = tf.convert_to_tensor(train_data[0])
-                tf.summary.image("image",image_tensor)
-                self.write_op = tf.summary.merge_all()
-                _, summary, train_step_loss, global_step_val, _ = self.sess.run(
-                    [train_op, self.write_op, self.loss, self.global_step, image_tensor], feed_dict={
+                _, summary, train_step_loss, global_step_val = self.sess.run(
+                    [train_op, self.write_op, self.loss, self.global_step], feed_dict={
                         self.input_data: train_data[0],
                         self.label_sbbox: train_data[1],
                         self.label_mbbox: train_data[2],
@@ -182,10 +192,15 @@ class YoloTrain(object):
                 test_epoch_loss.append(test_step_loss)
 
             train_epoch_loss, test_epoch_loss = np.mean(train_epoch_loss), np.mean(test_epoch_loss)
-            ckpt_file = "./checkpoint/yolov3_test_loss=%.4f.ckpt" % test_epoch_loss
+
+            if not os.path.exists(self.ckpt_savePath):#模型保存路径不存在，则创建该路径
+                os.mkdir(self.ckpt_savePath)
+
+            ckpt_file = os.path.join(self.ckpt_savePath,'yolov3_test_loss=%.4f.ckpt' % test_epoch_loss)
+            #ckpt_file = "./checkpoint/yolov3_test_loss=%.4f.ckpt" % test_epoch_loss
             log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
-            print("=> Epoch: %2d Time: %s Train loss: %.2f Test loss: %.2f Saving %s ..."
-                  % (epoch, log_time, train_epoch_loss, test_epoch_loss, ckpt_file))
+            print("=> Epoch: %2d/%2d Time: %s Train loss: %.2f Test loss: %.2f Saving %s ..."
+                  % (epoch,(self.first_stage_epochs + self.second_stage_epochs),log_time, train_epoch_loss, test_epoch_loss, ckpt_file))
             self.saver.save(self.sess, ckpt_file, global_step=epoch)
 
 
