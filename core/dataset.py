@@ -12,6 +12,10 @@
 __author__ = 'liheng'
 
 import os
+
+if __name__ == '__main__':#测试dataset类用，此时需要切换工作目录为上一级
+    os.chdir('../')
+
 import cv2
 import random
 import numpy as np
@@ -68,6 +72,7 @@ class Dataset(object):
             self.train_output_sizes = self.train_input_size // self.strides
 
             batch_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3))
+            batch_gt_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3),dtype=np.float32)#绘制有ground truth的图像
 
             batch_label_sbbox = np.zeros((self.batch_size, self.train_output_sizes[0], self.train_output_sizes[0],
                                           self.anchor_per_scale, 5 + self.num_classes))
@@ -86,8 +91,15 @@ class Dataset(object):
                     index = self.batch_count * self.batch_size + num
                     if index >= self.num_samples: index -= self.num_samples
                     annotation = self.annotations[index]
-                    image, bboxes = self.parse_annotation(annotation) # 读取图像，box(位置+类别)
+                    image, bboxes = self.parse_annotation(annotation) # 读取图像，box(位置+类别)，图像已经经过预处理、数据增强等变换
                     label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
+
+                    # 在image标出true box及其类别
+                    _temp = np.ones(bboxes.shape[0])#作为置信度
+                    _bboxes = np.insert(bboxes,4,values=_temp,axis=1)#增加一列
+                    gt_image = utils.draw_bbox(image*255,_bboxes) #输入image类型需要为uint8类型(0-255之间),
+                    gt_image = gt_image.astype(np.float32)#转换为float32类型
+                    batch_gt_image[num, :, :, :] = gt_image
 
                     batch_image[num, :, :, :] = image
                     batch_label_sbbox[num, :, :, :, :] = label_sbbox
@@ -99,7 +111,7 @@ class Dataset(object):
                     num += 1
                 self.batch_count += 1
                 return batch_image, batch_label_sbbox, batch_label_mbbox, batch_label_lbbox, \
-                       batch_sbboxes, batch_mbboxes, batch_lbboxes
+                       batch_sbboxes, batch_mbboxes, batch_lbboxes,batch_gt_image
             else:
                 self.batch_count = 0
                 np.random.shuffle(self.annotations)
@@ -230,6 +242,10 @@ class Dataset(object):
         '''
         label = [np.zeros((self.train_output_sizes[i], self.train_output_sizes[i], self.anchor_per_scale,
                            5 + self.num_classes)) for i in range(3)]
+        # label 为list类型，共有3个元素，
+        # 每个元素的shape为[self.train_output_sizes[i],self.train_output_sizes[i],
+        # self.anchor_per_scale,5 + self.num_classes]
+
         bboxes_xywh = [np.zeros((self.max_bbox_per_scale, 4)) for _ in range(3)] # 这里 4 来源于坐标有 x,y,w,h 四个值（可以理解为4列），
         bbox_count = np.zeros((3,))
 
@@ -237,11 +253,11 @@ class Dataset(object):
             bbox_coor = bbox[:4] # 位置
             bbox_class_ind = bbox[4] # 类别
 
-            onehot = np.zeros(self.num_classes, dtype=np.float)
+            onehot = np.zeros(self.num_classes, dtype=np.float) # 理解为1列数组，共80行，某一行的值为1，意味着为该类别。例：oneshot[2]=1.0,意味着该矩形框物体属于类别2
             onehot[bbox_class_ind] = 1.0
             uniform_distribution = np.full(self.num_classes, 1.0 / self.num_classes)
             deta = 0.01
-            smooth_onehot = onehot * (1 - deta) + deta * uniform_distribution# 应是将置信度1.0进行平滑处理？
+            smooth_onehot = onehot * (1 - deta) + deta * uniform_distribution# 应是将置信度1.0进行平滑处理，保证在0-1区间内
 
             bbox_xywh = np.concatenate([(bbox_coor[2:] + bbox_coor[:2]) * 0.5, bbox_coor[2:] - bbox_coor[:2]], axis=-1)# 将边框的顶点坐标转换为中心点+宽高的形式
             bbox_xywh_scaled = 1.0 * bbox_xywh[np.newaxis, :] / self.strides[:, np.newaxis] # 将边框坐标映射到3个feature map上
@@ -257,17 +273,17 @@ class Dataset(object):
                 iou.append(iou_scale)
                 iou_mask = iou_scale > 0.3 # 判断其和真实的box的iou是否>0.3
 
-                if np.any(iou_mask):# 针对 iou > 0.3 的 anchor 框进行处理
+                if np.any(iou_mask):# 针对 iou > 0.3 的 anchor 框进行处理.一个物体可能同时在多个feature map上匹配到，以及被一个feature map上的多个anchor匹配到
                     xind, yind = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32)# 中心点坐标 #根据真实框的坐标信息来计算所属网格左上角的位置
 
-                    label[i][yind, xind, iou_mask, :] = 0 # 将无关的feature map上置0，
+                    label[i][yind, xind, iou_mask, :] = 0 # 将无关的feature map上置0，iou_mask中值为False的label对应列为0，
                     # 填充真实框的中心位置和宽高
                     label[i][yind, xind, iou_mask, 0:4] = bbox_xywh # TODO：此处应是bbox_xywh_scaled[i]吧? 经过查看后面计算损失函数部分，应该是直接利用坐标值，而非缩放、归一化后的坐标值
                     label[i][yind, xind, iou_mask, 4:5] = 1.0 # 设定置信度为 1.0，表明该网格包含物体
-                    label[i][yind, xind, iou_mask, 5:] = smooth_onehot#平滑处理
+                    label[i][yind, xind, iou_mask, 5:] = smooth_onehot#平滑处理,具体为某个物体的概率
 
                     bbox_ind = int(bbox_count[i] % self.max_bbox_per_scale)
-                    bboxes_xywh[i][bbox_ind, :4] = bbox_xywh
+                    bboxes_xywh[i][bbox_ind, :4] = bbox_xywh # TODO：这里如何理解？
                     bbox_count[i] += 1
 
                     exist_positive = True
@@ -292,3 +308,20 @@ class Dataset(object):
 
     def __len__(self):
         return self.num_batchs
+
+
+if __name__ == '__main__':
+    '''
+    测试数据的读取，同时将true box显示出来
+    '''
+    trainset = Dataset('train')
+
+    nWaitTime = 0
+    for train_data in trainset:
+        cv2.imshow("gt_image",train_data[7][0])#仅展示1个batch中的第一幅图像
+
+        key = cv2.waitKey(nWaitTime)
+        if 27 == key:  # ESC
+            break
+        elif 32 == key:  # space
+            nWaitTime = not nWaitTime

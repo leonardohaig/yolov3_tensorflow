@@ -1,5 +1,8 @@
 Reversion History     
 ========================================      
+* **2019.10.25**     
+1.添加TFRecord数据生成与读取；        
+2.summary添加image及ground truth box的显示；       
 * **2019.8.22**      
 1.`_train.py`添加接着上次训练结果训练功能，添加`tf.summary.image`功能；      
 2.添加阅读注释:边框预测函数`def decode(self, conv_output, anchors, stride)`     

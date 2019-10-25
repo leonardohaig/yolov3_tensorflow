@@ -26,7 +26,7 @@ from core.dataset import Dataset
 from core.yolov3 import YOLOV3
 from core.config import cfg
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
+#os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
@@ -57,6 +57,7 @@ class YoloTrain(object):
             self.true_sbboxes = tf.placeholder(dtype=tf.float32, name='sbboxes')
             self.true_mbboxes = tf.placeholder(dtype=tf.float32, name='mbboxes')
             self.true_lbboxes = tf.placeholder(dtype=tf.float32, name='lbboxes')
+            self.input_gt_image = tf.placeholder(dtype=tf.float64, name='input_gt_image')
             self.trainable = tf.placeholder(dtype=tf.bool, name='training') # 占位符，对训练时，为True，验证时为False
 
         with tf.name_scope("define_loss"):
@@ -122,7 +123,7 @@ class YoloTrain(object):
             tf.summary.scalar("conf_loss", self.conf_loss)
             tf.summary.scalar("prob_loss", self.prob_loss)
             tf.summary.scalar("total_loss", self.loss)
-            tf.summary.image("input_image", self.input_data)
+            tf.summary.image("input_gt_image", self.input_gt_image)
 
             if os.path.exists(self.train_logdir): shutil.rmtree(self.train_logdir)#递归删除文件夹下的所有子文件夹和子文件
             os.mkdir(self.train_logdir)
@@ -170,6 +171,7 @@ class YoloTrain(object):
                         self.true_sbboxes: train_data[4],
                         self.true_mbboxes: train_data[5],
                         self.true_lbboxes: train_data[6],
+                        self.input_gt_image:train_data[7],
                         self.trainable: True,
                     })
 

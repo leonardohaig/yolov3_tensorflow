@@ -68,7 +68,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
     image_resized = cv2.resize(image,(nw,nh))#按最长边的比例进行缩放
 
 
-    image_paded = np.full(shape=[ih,iw,3],fill_value=128.0)#填充后的目标图像
+    image_paded = np.full(shape=[ih,iw,3],fill_value=128.0,dtype=np.float32)#填充后的目标图像
     dw,dh = (iw-nw)//2,(ih-nh)//2#上/下 左/右填充的宽度，注意//2的作用
     image_paded[dh:nh+dh,dw:nw+dw,:] = image_resized#将缩放后的图像赋值给结果图像.类似于opencv的copyTo()函数
 
@@ -86,7 +86,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
 def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label=True):
     '''
     将检测出的目标在图像上用矩形框画出，同时标出其标签及置信度
-    :param image:需要绘制结果的图像
+    :param image:需要绘制结果的图像,uint8类型
     :param bboxes: [x_min,y_min,x_max,y_max,prob,cls_id] format coordinates.
     :param classes:类别名称列表
     :param show_label:是否显示物体类别名称
