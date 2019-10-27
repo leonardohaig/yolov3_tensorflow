@@ -1,5 +1,7 @@
 Reversion History     
 ========================================      
+* **2019.10.27**     
+增加对3个pred_box的处理，通过置信度处理，nms过滤，使其返回为一个box，待验证    
 * **2019.10.25**     
 1.添加TFRecord数据生成与读取；        
 2.summary添加image及ground truth box的显示；       

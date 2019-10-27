@@ -2,6 +2,10 @@
 #coding=utf-8
 
 #============================#
+#Update content:返回批数据时，增加ground truth box image的显示
+#Date:2019.10.26
+#Author:liheng
+#Version:V1.1
 #Program:dataset.py
 #Date:2019.06.05
 #Author:liheng
@@ -68,8 +72,8 @@ class Dataset(object):
     def __next__(self):# 返回下一批次的数据
 
         with tf.device('/cpu:0'):# 指定设备为cpu，意味着以下操作在cpu上完成
-            self.train_input_size = random.choice(self.train_input_sizes)
-            self.train_output_sizes = self.train_input_size // self.strides
+            self.train_input_size = random.choice(self.train_input_sizes) # 网络输入图像尺寸，随机选择，非固定的416X416，
+            self.train_output_sizes = self.train_input_size // self.strides # 网络输出图像尺寸，指定输出尺寸，可以保证权重矩阵维度一致
 
             batch_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3))
             batch_gt_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3),dtype=np.float32)#绘制有ground truth的图像
@@ -98,8 +102,7 @@ class Dataset(object):
                     _temp = np.ones(bboxes.shape[0])#作为置信度
                     _bboxes = np.insert(bboxes,4,values=_temp,axis=1)#增加一列
                     gt_image = utils.draw_bbox(image*255,_bboxes) #输入image类型需要为uint8类型(0-255之间),
-                    gt_image = gt_image.astype(np.float32)#转换为float32类型
-                    batch_gt_image[num, :, :, :] = gt_image
+                    batch_gt_image[num, :, :, :] = gt_image/255.0 # 归一化0-1区间，类型为float32
 
                     batch_image[num, :, :, :] = image
                     batch_label_sbbox[num, :, :, :, :] = label_sbbox

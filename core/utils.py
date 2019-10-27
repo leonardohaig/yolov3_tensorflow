@@ -250,8 +250,8 @@ def postprocess_boxes(pred_bbox,org_img_shape,input_size,score_threshold):
     scale_mask = np.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
 
     # # (5) discard some boxes with low scores
-    classes = np.argmax(pred_prob, axis=-1)
-    scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes]
+    classes = np.argmax(pred_prob, axis=-1) # 找出概率最大的class索引
+    scores = pred_conf * pred_prob[np.arange(len(pred_coor)), classes] # 列矩阵*行矩阵
     score_mask = scores > score_threshold
     mask = np.logical_and(scale_mask, score_mask)
     coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]

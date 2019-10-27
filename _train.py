@@ -50,7 +50,9 @@ class YoloTrain(object):
         self.sess = tf.Session(config=self.config)
         self.ckpt_savePath = './checkpoint/raccoon_checkpoint' # ckpt文件保存路径
         with tf.name_scope('define_input'):
-            self.input_data = tf.placeholder(dtype=tf.float32, name='input_data')
+            self.input_data_H = tf.placeholder(dtype=tf.int32, shape=[], name='input_data_H')
+            self.input_data_W = tf.placeholder(dtype=tf.int32, shape=[], name='input_data_W')
+            self.input_data = tf.placeholder(dtype=tf.float32, shape=[None,None,None,None], name='input_data')
             self.label_sbbox = tf.placeholder(dtype=tf.float32, name='label_sbbox')
             self.label_mbbox = tf.placeholder(dtype=tf.float32, name='label_mbbox')
             self.label_lbbox = tf.placeholder(dtype=tf.float32, name='label_lbbox')
@@ -61,7 +63,7 @@ class YoloTrain(object):
             self.trainable = tf.placeholder(dtype=tf.bool, name='training') # 占位符，对训练时，为True，验证时为False
 
         with tf.name_scope("define_loss"):
-            self.model = YOLOV3(self.input_data, self.trainable)
+            self.model = YOLOV3(self.input_data, self.trainable,self.input_data_H,self.input_data_W)
             self.net_var = tf.global_variables()
             self.giou_loss, self.conf_loss, self.prob_loss = self.model.compute_loss(
                 self.label_sbbox, self.label_mbbox, self.label_lbbox,
@@ -171,7 +173,9 @@ class YoloTrain(object):
                         self.true_sbboxes: train_data[4],
                         self.true_mbboxes: train_data[5],
                         self.true_lbboxes: train_data[6],
-                        self.input_gt_image:train_data[7],
+                        self.input_gt_image: train_data[7],
+                        self.input_data_H: train_data[0].shape[1],
+                        self.input_data_W: train_data[0].shape[2],
                         self.trainable: True,
                     })
 
@@ -188,6 +192,8 @@ class YoloTrain(object):
                     self.true_sbboxes: test_data[4],
                     self.true_mbboxes: test_data[5],
                     self.true_lbboxes: test_data[6],
+                    self.input_data_H: test_data[0].shape[1],
+                    self.input_data_W: test_data[0].shape[2],
                     self.trainable: False,
                 })
 
@@ -208,41 +214,3 @@ class YoloTrain(object):
 
 if __name__ == '__main__':
     YoloTrain().train()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
