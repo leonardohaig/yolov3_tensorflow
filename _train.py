@@ -26,7 +26,7 @@ from core.dataset import Dataset
 from core.yolov3 import YOLOV3
 from core.config import cfg
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
+# os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
@@ -50,9 +50,9 @@ class YoloTrain(object):
         self.sess = tf.Session(config=self.config)
         self.ckpt_savePath = './checkpoint/raccoon_checkpoint' # ckpt文件保存路径
         with tf.name_scope('define_input'):
-            self.input_data_H = tf.placeholder(dtype=tf.int32, shape=[], name='input_data_H')
-            self.input_data_W = tf.placeholder(dtype=tf.int32, shape=[], name='input_data_W')
             self.input_data = tf.placeholder(dtype=tf.float32, shape=[None,None,None,None], name='input_data')
+            self.score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
+            self.iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
             self.label_sbbox = tf.placeholder(dtype=tf.float32, name='label_sbbox')
             self.label_mbbox = tf.placeholder(dtype=tf.float32, name='label_mbbox')
             self.label_lbbox = tf.placeholder(dtype=tf.float32, name='label_lbbox')
@@ -60,15 +60,18 @@ class YoloTrain(object):
             self.true_mbboxes = tf.placeholder(dtype=tf.float32, name='mbboxes')
             self.true_lbboxes = tf.placeholder(dtype=tf.float32, name='lbboxes')
             self.input_gt_image = tf.placeholder(dtype=tf.float64, name='input_gt_image')
+            self.train_pred_image = tf.placeholder(dtype=tf.float64, name='train_pred_image')
             self.trainable = tf.placeholder(dtype=tf.bool, name='training') # 占位符，对训练时，为True，验证时为False
 
         with tf.name_scope("define_loss"):
-            self.model = YOLOV3(self.input_data, self.trainable,self.input_data_H,self.input_data_W)
+            self.model = YOLOV3(self.input_data, self.trainable,self.score_threshold,self.iou_threshold)
             self.net_var = tf.global_variables()
             self.giou_loss, self.conf_loss, self.prob_loss = self.model.compute_loss(
                 self.label_sbbox, self.label_mbbox, self.label_lbbox,
                 self.true_sbboxes, self.true_mbboxes, self.true_lbboxes)
             self.loss = self.giou_loss + self.conf_loss + self.prob_loss # 损失函数
+            self.pred_res_boxes = self.model.get_imgage_predbboxes()
+            self.train_pred_image = self.model.get_pred_image(self.input_data)
 
         with tf.name_scope('learn_rate'):
             self.global_step = tf.Variable(1.0, dtype=tf.float64, trainable=False, name='global_step')
@@ -126,6 +129,7 @@ class YoloTrain(object):
             tf.summary.scalar("prob_loss", self.prob_loss)
             tf.summary.scalar("total_loss", self.loss)
             tf.summary.image("input_gt_image", self.input_gt_image)
+            tf.summary.image("train_pred_image",self.train_pred_image)
 
             if os.path.exists(self.train_logdir): shutil.rmtree(self.train_logdir)#递归删除文件夹下的所有子文件夹和子文件
             os.mkdir(self.train_logdir)
@@ -164,8 +168,8 @@ class YoloTrain(object):
             train_epoch_loss, test_epoch_loss = [], []
 
             for train_data in pbar:
-                _, summary, train_step_loss, global_step_val = self.sess.run(
-                    [train_op, self.write_op, self.loss, self.global_step], feed_dict={
+                _, summary, train_step_loss, global_step_val, pred_boxes= self.sess.run(
+                    [train_op, self.write_op, self.loss, self.global_step,self.pred_res_boxes], feed_dict={
                         self.input_data: train_data[0],
                         self.label_sbbox: train_data[1],
                         self.label_mbbox: train_data[2],
@@ -174,8 +178,8 @@ class YoloTrain(object):
                         self.true_mbboxes: train_data[5],
                         self.true_lbboxes: train_data[6],
                         self.input_gt_image: train_data[7],
-                        self.input_data_H: train_data[0].shape[1],
-                        self.input_data_W: train_data[0].shape[2],
+                        self.score_threshold: 0.3,
+                        self.iou_threshold: 0.45,
                         self.trainable: True,
                     })
 
@@ -192,8 +196,6 @@ class YoloTrain(object):
                     self.true_sbboxes: test_data[4],
                     self.true_mbboxes: test_data[5],
                     self.true_lbboxes: test_data[6],
-                    self.input_data_H: test_data[0].shape[1],
-                    self.input_data_W: test_data[0].shape[2],
                     self.trainable: False,
                 })
 

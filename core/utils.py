@@ -107,6 +107,8 @@ def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label
         fontScale = 0.5
         score = bbox[4]
         class_ind = int(bbox[5])
+        if class_ind == -1:
+            continue
         bbox_color = colors[class_ind]
         bbox_thick = int(0.6*(image_h+image_w)/600)
         c1,c2 = (coor[0],coor[1]),(coor[2],coor[3])#矩形框的左上和右下顶点
@@ -258,12 +260,22 @@ def postprocess_boxes(pred_bbox,org_img_shape,input_size,score_threshold):
 
     return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
 
+def draw_batch_bbox(batch_image,batch_bboxes):
+    '''
 
+    :param batch_image:NHWC
+    :param batch_bboxes:[N,cls_num,per_cls_maxbox,6]
+    :return:NHWC
+    '''
 
+    image_num = batch_image.shape[0]
+    _batch_image = np.zeros((image_num, batch_image.shape[1], batch_image.shape[2], 3), dtype=np.float32)
 
+    for i in range(image_num):#取出1batch
+        image = np.array(batch_image[i]*255,dtype=np.uint8)
+        image = draw_bbox(image,batch_bboxes[i])
+        _batch_image[i] = image
 
+    _batch_image = _batch_image * (1.0/255.0)# 归一化0-1区间，类型为float32
 
-
-
-
-
+    return _batch_image

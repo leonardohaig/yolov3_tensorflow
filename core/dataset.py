@@ -321,6 +321,10 @@ if __name__ == '__main__':
 
     nWaitTime = 0
     for train_data in trainset:
+        # batch_bboxes = np.random.randint(10,50,size=(cfg.TRAIN.BATCH_SIZE,20,6)).astype(np.float)
+        # batch_bboxes[:,10:20] = -1
+        # utils.draw_batch_bbox(train_data[0],batch_bboxes)
+
         cv2.imshow("gt_image",train_data[7][0])#仅展示1个batch中的第一幅图像
 
         key = cv2.waitKey(nWaitTime)
