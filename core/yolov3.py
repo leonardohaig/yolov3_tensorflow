@@ -85,13 +85,13 @@ class YOLOV3(object):
         # ====predict one=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
         input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv52')
-        input_data = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv53')
+        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv53')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv54')
-        input_data = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv55')
+        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv55')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
 
         # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255],255=3*(80+5)
-        conv_lobj_branch = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv_lobj_branch')
+        conv_lobj_branch = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv_lobj_branch')
         conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
 
@@ -107,13 +107,13 @@ class YOLOV3(object):
         # ====predict two=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
         input_data = common.convolutional(input_data, (1, 1, 96+256, 256), self.trainable, 'conv58')
-        input_data = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv59')
+        input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv59')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv60')
-        input_data = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv61')
+        input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv61')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv62')
 
         # conv_mbbox 用于预测中等尺寸物体，shape = [None, 26, 26, 255]
-        conv_mobj_branch = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv_mobj_branch')
+        conv_mobj_branch = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv_mobj_branch')
         conv_mbbox = common.convolutional(conv_mobj_branch, (1, 1, 512, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_mbbox', activate=False, bn=False)
 
@@ -126,13 +126,13 @@ class YOLOV3(object):
         # ====predict three=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
         input_data = common.convolutional(input_data, (1, 1, 32+128, 128), self.trainable, 'conv64')
-        input_data = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv65')
+        input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name= 'conv65')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv66')
-        input_data = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv67')
+        input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name= 'conv67')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv68')
 
         # conv_sbbox 用于预测小尺寸物体，shape = [None, 52, 52, 255]
-        conv_sobj_branch = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv_sobj_branch')
+        conv_sobj_branch = common.separable_conv(input_data, output_c=256, training=self.trainable, name= 'conv_sobj_branch')
         conv_sbbox = common.convolutional(conv_sobj_branch, (1, 1, 256, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_sbbox', activate=False, bn=False)
 

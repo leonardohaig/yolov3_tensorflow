@@ -192,17 +192,17 @@ def upsample(input_data,name,method='deconv'):
 
 
 
-def separable_conv(name, input_data, input_c, output_c, training, downsample=False):
+def separable_conv(input_data, output_c, training, name, downsample=False):
     """
     :param name:
     :param input_data: shape 为NHWC
-    :param input_c: channel of input data
     :param output_c: channel of output data
     :param training: 是否在训练，必须为tensor
     :param downsample: 是否下采样
     :return: 输出数据的shape为(N, H, W, output_channel)
     """
     with tf.variable_scope(name):
+        input_c = input_data.get_shape().as_list()[-1]  # channel of input_data
         with tf.variable_scope('depthwise'):
             if downsample:
                 pad_data = tf.constant([[0, 0], [1, 1], [1, 1], [0, 0]])
@@ -212,6 +212,7 @@ def separable_conv(name, input_data, input_c, output_c, training, downsample=Fal
             else:
                 strides = (1, 1, 1, 1)
                 padding = "SAME"
+
             dwise_weight = tf.get_variable(name='depthwise_weights', dtype=tf.float32, trainable=True,
                                            shape=(3, 3, input_c, 1),
                                            initializer=tf.random_normal_initializer(stddev=0.01))
