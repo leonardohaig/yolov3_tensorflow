@@ -26,12 +26,13 @@ def evaluate_params(graph):
     params = tf.profiler.profile(graph, options=tf.profiler.ProfileOptionBuilder.trainable_variables_parameter())
     return params.total_parameters
 
-with tf.Graph().as_default() as graph:
-    A = tf.get_variable(initializer=tf.constant_initializer(value=1, dtype=tf.float32), shape=(25, 16), name='A')
-    B = tf.get_variable(initializer=tf.zeros_initializer(dtype=tf.float32), shape=(16, 9), name='B')
-    C = tf.matmul(A, B, name='ouput')
+if __name__ == '__main__':
+    with tf.Graph().as_default() as graph:
+        A = tf.get_variable(initializer=tf.constant_initializer(value=1, dtype=tf.float32), shape=(25, 16), name='A')
+        B = tf.get_variable(initializer=tf.zeros_initializer(dtype=tf.float32), shape=(16, 9), name='B')
+        C = tf.matmul(A, B, name='ouput')
 
-    flops = evaluate_flops(graph)
-    params = evaluate_params(graph)
-    print('flops:', flops)
-    print('params:', params)
+        flops = evaluate_flops(graph)
+        params = evaluate_params(graph)
+        print('flops:', flops)
+        print('params:', params)

@@ -2,26 +2,27 @@
 #coding=utf-8
 
 #============================#
-#Update content:增加对3个pred_box的处理，通过置信度处理，nms过滤，使其返回为一个box，待验证
-#Date:2019.10.27
-#Author:liheng
-#Version:V1.1
-
 #Program:yolov3 的实现部分
-#Date:2019.05.23
+#Date:2019.11.4
 #Author:liheng
 #Version:V1.0
-#Reference:https://github.com/YunYang1994/tensorflow-yolov3/blob/master/core/yolov3.py
 #============================#
 
 __author__ = 'liheng'
+
+
+if __name__ == '__main__':#测试dataset类用，此时需要切换工作目录为上一级
+    import os
+    os.chdir('../')
 
 import numpy as np
 import tensorflow as tf
 import core.utils as utils
 import core.common as common
-import core.backbone as backbone
+# import core.backbone as backbone
+import core.MobilenetV2 as backbone
 from core.config import cfg
+from evaluator import *
 
 
 class YOLOV3(object):
@@ -47,6 +48,7 @@ class YOLOV3(object):
 
         try:
             self.conv_lbbox,self.conv_mbbox,self.conv_sbbox = self.__build_network(input_data)
+            # conv_?是YOLO的原始卷积输出(raw_dx, raw_dy, raw_dw, raw_dh, raw_conf, raw_prob)
         except:
             raise NotImplementedError("Can not build up yolov3 network!")
 
@@ -62,6 +64,9 @@ class YOLOV3(object):
             self.pred_res_boxes = self._get_pred_bboxes(input_data,score_threshold,iou_threshold)
             #预测结果框，shape[batchsize,num_class*per_cls_maxboxes,6]
 
+            # pred_?是YOLO预测bbox的信息(x, y, w, h, conf, prob)，(x, y, w, h)
+            # 的大小是相对于input_size的
+
     def __build_network(self, input_data):
         '''
 
@@ -71,22 +76,22 @@ class YOLOV3(object):
         '''
 
         # 输入层进入 Darknet-53 网络后，得到了三个分支
-        route_1, route_2, input_data = backbone.darknet53(input_data, self.trainable)  # 输出的尺度为52,26,13
-        # route_1.shape=(?,52,52,256)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
-        # route_2.shape=(?,26,26,512)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
-        # route_3.shape=(?,13,13,1024)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
+        route_1, route_2, input_data = backbone.MobilenetV2(input_data, self.trainable)  # 输出的尺度为52,26,13
+        # route_1.shape=(?,52,52,32)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
+        # route_2.shape=(?,26,26,96)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
+        # route_3.shape=(?,13,13,1280)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
         # ?具体大小与该批次输入的图片数量有关
 
         # ====predict one=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv52')
-        input_data = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, 'conv53')
+        input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv52')
+        input_data = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv53')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv54')
-        input_data = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, 'conv55')
+        input_data = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv55')
         input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
 
         # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255],255=3*(80+5)
-        conv_lobj_branch = common.convolutional(input_data, (3, 3, 512, 1024), self.trainable, name='conv_lobj_branch')
+        conv_lobj_branch = common.separable_conv(input_data=input_data, input_c=512, output_c=1024, training=self.trainable, name='conv_lobj_branch')
         conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
 
@@ -97,18 +102,18 @@ class YOLOV3(object):
 
         # 连接
         with tf.variable_scope('route_1'):
-            input_data = tf.concat([input_data, route_2], axis=-1)#input_data.shape(?,26,26,768),768=256(input_data)+512(route_2),第4维的拼接
+            input_data = tf.concat([input_data, route_2], axis=-1)#input_data.shape(?,26,26,352),352=256(input_data)+96(route_2),第4维的拼接
 
         # ====predict two=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 768, 256), self.trainable, 'conv58')
-        input_data = common.convolutional(input_data, (3, 3, 256, 512), self.trainable, 'conv59')
+        input_data = common.convolutional(input_data, (1, 1, 96+256, 256), self.trainable, 'conv58')
+        input_data = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv59')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv60')
-        input_data = common.convolutional(input_data, (3, 3, 256, 512), self.trainable, 'conv61')
+        input_data = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv61')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv62')
 
         # conv_mbbox 用于预测中等尺寸物体，shape = [None, 26, 26, 255]
-        conv_mobj_branch = common.convolutional(input_data, (3, 3, 256, 512), self.trainable, name='conv_mobj_branch')
+        conv_mobj_branch = common.separable_conv(input_data=input_data, input_c=256, output_c=512, training=self.trainable, name='conv_mobj_branch')
         conv_mbbox = common.convolutional(conv_mobj_branch, (1, 1, 512, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_mbbox', activate=False, bn=False)
 
@@ -116,18 +121,18 @@ class YOLOV3(object):
         input_data = common.upsample(input_data, name='upsample1', method=self.upsample_method)
 
         with tf.variable_scope('route_2'):
-            input_data = tf.concat([input_data, route_1], axis=-1)#input_data.shape(?,52,52,384),384=128(input_data)+256(route_1),第4维的拼接
+            input_data = tf.concat([input_data, route_1], axis=-1)#input_data.shape(?,52,52,160),160=128(input_data)+32(route_1),第4维的拼接
 
         # ====predict three=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 384, 128), self.trainable, 'conv64')
-        input_data = common.convolutional(input_data, (3, 3, 128, 256), self.trainable, 'conv65')
+        input_data = common.convolutional(input_data, (1, 1, 32+128, 128), self.trainable, 'conv64')
+        input_data = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv65')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv66')
-        input_data = common.convolutional(input_data, (3, 3, 128, 256), self.trainable, 'conv67')
+        input_data = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv67')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv68')
 
         # conv_sbbox 用于预测小尺寸物体，shape = [None, 52, 52, 255]
-        conv_sobj_branch = common.convolutional(input_data, (3, 3, 128, 256), self.trainable, name='conv_sobj_branch')
+        conv_sobj_branch = common.separable_conv(input_data=input_data, input_c=128, output_c=256, training=self.trainable, name= 'conv_sobj_branch')
         conv_sbbox = common.convolutional(conv_sobj_branch, (1, 1, 256, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_sbbox', activate=False, bn=False)
 
@@ -771,3 +776,19 @@ class YOLOV3(object):
                               None, 3])
 
         return self.pred_image
+
+
+if __name__ == '__main__':
+    graph = tf.get_default_graph()
+    # input_data = tf.placeholder(dtype=tf.float32, shape=[5, 416, 416, 3], name='input_data')
+    input_data = tf.placeholder(dtype=tf.float32, shape=[None, None, None, None], name='input_data')
+    trainable = tf.placeholder(dtype=tf.bool, shape=[], name='training')
+    score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
+    iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
+    model = YOLOV3(input_data, trainable, score_threshold, iou_threshold)
+    flops = evaluate_flops(graph)
+    params = evaluate_params(graph)
+    print('flops:', flops)
+    print('params:', params)
+
+    stats_graph(graph)
