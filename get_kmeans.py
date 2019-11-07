@@ -109,7 +109,7 @@ def parse_anno(annotation_path, target_size=None):
         constent = line.strip().split(' ')
         img_h,img_w,_c = cv2.imread(constent[0],cv2.IMREAD_COLOR).shape
         for item in constent[1:]:
-            x_min, y_min, x_max, y_max, class_id = list(map(int,item.split(',')))
+            x_min, y_min, x_max, y_max, class_id = list(map(float,item.split(',')))
             width = x_max - x_min
             height = y_max - y_min
             assert width > 0
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     # if target_resize is speficied, the anchors are on the resized image scale
     # if target_resize is set to None, the anchors are on the original image scale
     target_size = [416, 416]
-    annotation_path = "data/classes/train_yoloTF.txt"
+    annotation_path = "tools/bdd100k_train.txt"
     anno_result = parse_anno(annotation_path, target_size=target_size)
     anchors, ave_iou = get_kmeans(anno_result, 9)
 

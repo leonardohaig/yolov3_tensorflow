@@ -26,7 +26,7 @@ from core.dataset import Dataset
 from core.yolov3 import YOLOV3
 from core.config import cfg
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
+#os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 class YoloTrain(object):
     def __init__(self):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
@@ -41,12 +41,13 @@ class YoloTrain(object):
         self.time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
         self.moving_ave_decay = cfg.YOLO.MOVING_AVE_DECAY #滑动平均时的decay值
         self.max_bbox_per_scale = 150 #每个尺度上检测目标的数量
-        self.train_logdir = "./data/log/" # 训练日志保存路径
+        self.train_logdir = "./data/log3/" # 训练日志保存路径
         self.trainset = Dataset('train')
         self.testset = Dataset('test')
         self.steps_per_period = len(self.trainset)
         self.config = tf.ConfigProto(allow_soft_placement=True)
-        #self.config.gpu_options.per_process_gpu_memory_fraction = 0.2  # 占用20%显存
+        # self.config.gpu_options.allow_growth = True
+        self.config.gpu_options.per_process_gpu_memory_fraction = 0.75  # 占用75%显存
         self.sess = tf.Session(config=self.config)
         self.ckpt_savePath = './checkpoint/raccoon_checkpoint' # ckpt文件保存路径
         with tf.name_scope('define_input'):

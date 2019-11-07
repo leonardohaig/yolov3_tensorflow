@@ -44,7 +44,7 @@ class YOLOV3(object):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
         self.iou_loss_thresh = cfg.YOLO.IOU_LOSS_THRESH
         self.upsample_method = cfg.YOLO.UPSAMPLE_METHOD#上采样方式
-        self.per_cls_maxboxes = 200 # 一张图像上，每一类别的检测结果做大数量
+        self.per_cls_maxboxes = 50 # 一张图像上，每一类别的检测结果做大数量
 
         try:
             self.conv_lbbox,self.conv_mbbox,self.conv_sbbox = self.__build_network(input_data)
@@ -666,11 +666,16 @@ class YOLOV3(object):
             scores = pred_conf * max_value
             score_mask = scores > score_threshold
             mask = tf.logical_and(scale_mask, score_mask)
-            coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
+            # coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
 
             # 合并结果
+            coors, scores, classes = pred_coor, scores, classes
             bboxes = tf.concat([coors, scores[:, tf.newaxis], classes[:, tf.newaxis]],
                                axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
+            indices = tf.where(mask)
+            indices = tf.squeeze(indices,axis=-1)
+            bboxes = tf.gather(bboxes, indices)
+
 
             # ===============nms过滤=======================#
             def nms_map_fn(args):
@@ -685,7 +690,9 @@ class YOLOV3(object):
 
                 _bboxes = tf.cast(bboxes[:, 5], dtype=tf.int32)  # 类别ID
                 cls_mask = tf.equal(_bboxes, cls)
-                cls_bboxes = bboxes[cls_mask]  # ID为cls的目标框
+                indices = tf.where(cls_mask)
+                indices = tf.squeeze(indices, axis=-1)
+                cls_bboxes = tf.gather(bboxes, indices)# ID为cls的目标框
 
                 # 拆分得到boxes，scores，以便调用tf.image.non_max_suppression
                 # nms之后再来合并
@@ -736,7 +743,7 @@ class YOLOV3(object):
             clsnum = tf.shape(best_bboxes)[0]
             best_bboxes = best_bboxes[:self.num_class]
             def add_classes():
-                temp_classes = tf.fill([self.num_class - clsnum, self.num_class, 6], -1)  # 创建一个常量
+                temp_classes = tf.fill([self.num_class - clsnum, self.per_cls_maxboxes, 6], -1)  # 创建一个常量
                 temp_classes = tf.to_float(temp_classes)
                 _best_bboxes = tf.concat([best_bboxes, temp_classes], axis=0)
                 return _best_bboxes
@@ -771,7 +778,7 @@ class YOLOV3(object):
         :return:
         '''
 
-        self.pred_image = tf.py_function(utils.draw_batch_bbox,[input_data,self.pred_res_boxes],tf.float32)
+        self.pred_image = tf.py_func(utils.draw_batch_bbox,[input_data,self.pred_res_boxes],tf.float32)
         self.pred_image.set_shape([None, None,
                               None, 3])
 

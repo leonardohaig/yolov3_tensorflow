@@ -30,9 +30,15 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    imgRootPath = "/media/liheng/TOSHIBA EXT/DataSet/bdd100k/images/100k/val/"
-    labelPath = "/media/liheng/TOSHIBA EXT/DataSet/bdd100k/labels/bdd100k_labels_images_val.json"
-    yolo_format_saved_path = './val.txt' #导出文件保存路径
+    MAX_NUM_IMAGES = 300 #最多处理的图片数量
+    imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
+    labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
+    yolo_format_saved_path = './bdd100k_val.txt' #导出文件保存路径
+    #MAX_NUM_IMAGES = 1000 #最多处理的图片数量
+    #imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
+    #labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_train.json"
+    #yolo_format_saved_path = './bdd100k_train.txt' #导出文件保存路径
+
     needed_classes_file = '../data/classes/bdd100k.names'  # 需要的类别
 
     needed_classes = read_class_names(needed_classes_file)#需要的类别名称
@@ -43,7 +49,7 @@ if __name__ == '__main__':
         lines = json.load(labelFile)
         labelFile.close()
 
-        for line in tqdm(lines):
+        for line in tqdm(lines[:MAX_NUM_IMAGES]):
             name = line['name']
             labels = line['labels']
             imgPath = imgRootPath + name
@@ -58,8 +64,8 @@ if __name__ == '__main__':
                 category = label['category']  # 获取类别名称
                 if category in needed_classes.keys():  # 该类在导出列表中
                     obj_roi = label['box2d']
-                    xmin, ymin = obj_roi['x1'], obj_roi['y1']
-                    xmax, ymax = obj_roi['x2'], obj_roi['y2']
+                    xmin, ymin = int(obj_roi['x1']), int(obj_roi['y1'])
+                    xmax, ymax = int(obj_roi['x2']), int(obj_roi['y2'])
                     xmax = min(xmax,W-1)
                     ymax = min(ymax,H-1)
                     cls_id = needed_classes[category]
