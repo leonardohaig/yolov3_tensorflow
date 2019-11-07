@@ -731,7 +731,7 @@ class YOLOV3(object):
             clsnum = tf.shape(best_bboxes)[0]
             best_bboxes = best_bboxes[:self.num_class]
             def add_classes():
-                temp_classes = tf.fill([self.num_class - clsnum, self.num_class, 6], -1)  # 创建一个常量
+                temp_classes = tf.fill([self.num_class - clsnum, self.per_cls_maxboxes, 6], -1)  # 创建一个常量
                 temp_classes = tf.to_float(temp_classes)
                 _best_bboxes = tf.concat([best_bboxes, temp_classes], axis=0)
                 return _best_bboxes
