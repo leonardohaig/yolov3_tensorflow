@@ -24,13 +24,17 @@ import core.MobilenetV2 as backbone
 from core.config import cfg
 from evaluator import *
 
+#解决错误：Check failed: c->in_use() && (c->bin_num == kInvalidBinNum)
+from tensorflow.python.ops import gen_image_ops
+tf.image.non_max_suppression = gen_image_ops.non_max_suppression_v2
+
 
 class YOLOV3(object):
     '''
     Implement tensorflow yolove here
     '''
 
-    def __init__(self, input_data, trainable,score_threshold=0.3,iou_threshold=0.45):
+    def __init__(self, input_data, trainable,score_threshold=0.3,iou_threshold=0.45,per_cls_maxboxes=50):
         '''
 
         :param input_data:
@@ -44,7 +48,7 @@ class YOLOV3(object):
         self.anchor_per_scale = cfg.YOLO.ANCHOR_PER_SCALE
         self.iou_loss_thresh = cfg.YOLO.IOU_LOSS_THRESH
         self.upsample_method = cfg.YOLO.UPSAMPLE_METHOD#上采样方式
-        self.per_cls_maxboxes = 50 # 一张图像上，每一类别的检测结果做大数量
+        self.per_cls_maxboxes = per_cls_maxboxes # 一张图像上，每一类别的检测结果做大数量
 
         try:
             self.conv_lbbox,self.conv_mbbox,self.conv_sbbox = self.__build_network(input_data)
@@ -361,260 +365,6 @@ class YOLOV3(object):
 
         return giou_loss, conf_loss, prob_loss
 
-
-    def get_pred_bboxes(self,input_data,score_threshold,iou_threshold):
-        '''
-        根据置信度和nms阈值，获取该批次数据的预测结果框
-        :param input_data NHWC
-        :param score_threshold:
-        :param iou_threshold:
-        :return:
-        '''
-
-        #取出batch中的1个image的检测结果进行处理
-        def batch_map_fn(args):
-            pred_sbbox,pred_mbbox,pred_lbbox = args
-
-            pred_bbox = tf.concat([tf.reshape(pred_sbbox, (-1, 5 + self.num_class)),
-                                   tf.reshape(pred_mbbox, (-1, 5 + self.num_class)),
-                                   tf.reshape(pred_lbbox, (-1, 5 + self.num_class))],
-                                  axis=0)  # pred_bbox.shape:(?,85)
-
-            pred_xywh = pred_bbox[:, 0:4]  # 4列数据内容为：Center_x,Center_y,width,height(中心点坐标+宽高)
-            pred_conf = pred_bbox[:, 4]  # 含有物体的概率
-            pred_prob = pred_bbox[:, 5:]  # 各目标的概率
-
-            # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-            pred_coor = tf.concat([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5,
-                                   pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
-
-            # # (3) clip some boxes those are out of range
-            input_image_h = tf.shape(input_data[0])[0]
-            input_image_w = tf.shape(input_data[0])[1]
-
-            pred_coor = tf.concat([tf.maximum(pred_coor[:, :2], [0, 0]),
-                                   tf.minimum(pred_coor[:, 2:], [input_image_w - 1, input_image_h - 1])], axis=-1)
-            invalid_mask = tf.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
-            # pred_coor[invalid_mask] = 0
-            # pred_coor1 = tf.where(invalid_mask,[[0,0,0,0]],pred_coor) # 对于mask位置处的坐标值，将值置0，其他位置保留原来的坐标值
-            valid_mask = tf.logical_not(invalid_mask)
-
-            # # (4) discard some invalid boxes
-            valid_scale = [0, np.inf]
-            bboxes_scale = tf.sqrt(
-                tf.reduce_prod(pred_coor[:, 2:4] - pred_coor[:, 0:2], -1))  # √((xmax-xmin)*(ymax-ymin))
-            scale_mask = tf.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
-            scale_mask = tf.logical_and(valid_mask, scale_mask)
-
-            # # (5) discard some boxes with low scores
-            classes = tf.argmax(pred_prob, axis=-1)  # 找出概率最大的class索引
-            classes = tf.to_float(classes)
-            max_value = tf.reduce_max(pred_prob, reduction_indices=[1])  # 找出行上最大值，即找出概率最大的class
-            scores = pred_conf * max_value
-            score_mask = scores > score_threshold
-            mask = tf.logical_and(scale_mask, score_mask)
-            coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
-
-            # 合并结果
-            bboxes = tf.concat([coors, scores[:, tf.newaxis], classes[:, tf.newaxis]],
-                               axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
-
-            # ===============nms过滤=======================#
-            def nms_map_fn(args):
-                '''
-
-                :param args:
-                :return:
-                '''
-
-                cls = args
-                cls = tf.cast(cls, dtype=tf.int32)
-
-                _bboxes = tf.cast(bboxes[:, 5], dtype=tf.int32)  # 类别ID
-                cls_mask = tf.equal(_bboxes, cls)
-                cls_bboxes = bboxes[cls_mask]  # ID为cls的目标框
-
-                # 拆分得到boxes，scores，以便调用tf.image.non_max_suppression
-                # nms之后再来合并
-                # https://cloud.tencent.com/developer/article/1486383
-                boxes = cls_bboxes[:, 0:4]
-                scores = cls_bboxes[:, 4]
-                _maxbox = tf.shape(scores)[0]  # nms操作最多输出多少个目标
-
-                selected_indices = tf.image.non_max_suppression(boxes=boxes, scores=scores,
-                                                                iou_threshold=iou_threshold,
-                                                                max_output_size=_maxbox)
-                selected_boxes = tf.gather(boxes, selected_indices)
-                seclected_scores = tf.gather(scores, selected_indices)
-                # classes = tf.Variable(tf.fill([objnum, 1], cls))
-                classes = tf.ones_like(seclected_scores, dtype=tf.int32) * cls
-                # classes = tf.where(seclected_scores>-100, seclected_scores, seclected_scores)
-                classes = tf.to_float(classes)
-
-                selected_bboxes = tf.concat([selected_boxes,
-                                             seclected_scores[:, tf.newaxis],
-                                             classes[:, tf.newaxis]],
-                                            axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
-
-                # selected_bboxes = selected_bboxes[tf.argsort(tf.cast(selected_bboxes[:, 4]*1000,dtype=tf.int32),direction='DESCENDING')] #根据概率降序排序
-
-                objnum = tf.shape(selected_boxes)[0]  # nms得到的目标数量
-                selected_bboxes = selected_bboxes[:self.per_cls_maxboxes]
-
-                def add_boxes():
-                    temp_bboxes = tf.fill([self.per_cls_maxboxes - objnum, 6], -1)  # 创建一个常量
-                    temp_bboxes = tf.to_float(temp_bboxes)
-                    _selected_bboxes = tf.concat([selected_bboxes, temp_bboxes], axis=0)
-                    return _selected_bboxes
-
-                def ori_boxes():
-                    return selected_bboxes
-
-                selected_bboxes = tf.cond(objnum < self.per_cls_maxboxes, true_fn=add_boxes, false_fn=ori_boxes)
-
-                return selected_bboxes
-
-            classes_in_img, idx = tf.unique(tf.cast(bboxes[:, 5],tf.int32))
-            best_bboxes = tf.map_fn(nms_map_fn, classes_in_img, infer_shape=False, dtype=tf.float32)
-
-            #填充行数与类别数一致
-            clsnum = tf.shape(best_bboxes)[0]
-            best_bboxes = best_bboxes[:self.num_class]
-            def add_classes():
-                temp_classes = tf.fill([self.num_class - clsnum, self.num_class, 6], -1)  # 创建一个常量
-                temp_classes = tf.to_float(temp_classes)
-                _best_bboxes = tf.concat([best_bboxes, temp_classes], axis=0)
-                return _best_bboxes
-
-            def ori_classes():
-                return best_bboxes
-
-            best_bboxes = tf.cond(clsnum < self.num_class, true_fn=add_classes, false_fn=ori_classes)
-
-            # 给变量一名称
-            # best_bboxes = tf.add_n([best_bboxes], name='pred_bboxes')
-            return best_bboxes
-
-
-        best_bboxes = tf.map_fn(batch_map_fn,(self.pred_sbbox,self.pred_mbbox,self.pred_lbbox),dtype=tf.float32,infer_shape=False)
-
-        # 给变量一名称
-        best_bboxes = tf.add_n([best_bboxes], name='pred_bboxes')
-
-        return best_bboxes
-
-
-
-
-
-
-        pred_bbox = tf.concat([tf.reshape(self.pred_sbbox, (-1, 5 + self.num_class)),
-                               tf.reshape(self.pred_mbbox, (-1, 5 + self.num_class)),
-                               tf.reshape(self.pred_lbbox, (-1, 5 + self.num_class))],
-                              axis=0) # pred_bbox.shape:(?,85)
-
-        pred_xywh = pred_bbox[:, 0:4]  # 4列数据内容为：Center_x,Center_y,width,height(中心点坐标+宽高)
-        pred_conf = pred_bbox[:, 4]  # 含有物体的概率
-        pred_prob = pred_bbox[:, 5:]  # 各目标的概率
-
-        # # (1) (x, y, w, h) --> (xmin, ymin, xmax, ymax)
-        pred_coor = tf.concat([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5,
-                               pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
-
-        # # (3) clip some boxes those are out of range
-        input_image_h = tf.shape(input_data[0])[0]
-        input_image_w = tf.shape(input_data[0])[1]
-
-        pred_coor = tf.concat([tf.maximum(pred_coor[:, :2], [0, 0]),
-                               tf.minimum(pred_coor[:, 2:], [input_image_w - 1, input_image_h - 1])],axis=-1)
-        invalid_mask = tf.logical_or((pred_coor[:, 0] > pred_coor[:, 2]), (pred_coor[:, 1] > pred_coor[:, 3]))
-        # pred_coor[invalid_mask] = 0
-        # pred_coor1 = tf.where(invalid_mask,[[0,0,0,0]],pred_coor) # 对于mask位置处的坐标值，将值置0，其他位置保留原来的坐标值
-        valid_mask = tf.logical_not(invalid_mask)
-
-        # # (4) discard some invalid boxes
-        valid_scale = [0, np.inf]
-        bboxes_scale = tf.sqrt(tf.reduce_prod(pred_coor[:, 2:4] - pred_coor[:, 0:2], -1)) # √((xmax-xmin)*(ymax-ymin))
-        scale_mask = tf.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
-        scale_mask = tf.logical_and(valid_mask,scale_mask)
-
-
-        # # (5) discard some boxes with low scores
-        classes = tf.argmax(pred_prob, axis=-1) # 找出概率最大的class索引
-        classes = tf.to_float(classes)
-        max_value = tf.reduce_max(pred_prob, reduction_indices=[1])#找出行上最大值，即找出概率最大的class
-        scores = pred_conf * max_value
-        score_mask = scores > score_threshold
-        mask = tf.logical_and(scale_mask, score_mask)
-        coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
-
-        # 合并结果
-        bboxes = tf.concat([coors, scores[:, tf.newaxis], classes[:, tf.newaxis]], axis=-1) # [xmin,ymin,xmax,ymax,prob,classid]
-
-        #===============nms过滤=======================#
-        def nms_map_fn(args):
-            '''
-
-            :param args:
-            :return:
-            '''
-
-            cls = args
-            cls = tf.cast(cls,dtype=tf.int32)
-
-            _bboxes = tf.cast(bboxes[:, 5],dtype=tf.int32) # 类别ID
-            cls_mask = tf.equal(_bboxes,cls)
-            cls_bboxes = bboxes[cls_mask] # ID为cls的目标框
-
-            # 拆分得到boxes，scores，以便调用tf.image.non_max_suppression
-            # nms之后再来合并
-            # https://cloud.tencent.com/developer/article/1486383
-            boxes = cls_bboxes[:, 0:4]
-            scores = cls_bboxes[:, 4]
-            _maxbox = tf.shape(scores)[0]  # nms操作最多输出多少个目标
-
-            selected_indices = tf.image.non_max_suppression(boxes=boxes, scores=scores,
-                                                            iou_threshold=iou_threshold,
-                                                            max_output_size=_maxbox)
-            selected_boxes = tf.gather(boxes, selected_indices)
-            seclected_scores = tf.gather(scores, selected_indices)
-            #classes = tf.Variable(tf.fill([objnum, 1], cls))
-            classes = tf.ones_like(seclected_scores,dtype=tf.int32) * cls
-            #classes = tf.where(seclected_scores>-100, seclected_scores, seclected_scores)
-            classes = tf.to_float(classes)
-
-            selected_bboxes = tf.concat([selected_boxes,
-                                         seclected_scores[:, tf.newaxis],
-                                         classes[:, tf.newaxis]],
-                                        axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
-
-            # selected_bboxes = selected_bboxes[tf.argsort(tf.cast(selected_bboxes[:, 4]*1000,dtype=tf.int32),direction='DESCENDING')] #根据概率降序排序
-
-            objnum = tf.shape(selected_boxes)[0]  # nms得到的目标数量
-            selected_bboxes = selected_bboxes[:self.per_cls_maxboxes]
-
-            def add_boxes():
-                temp_bboxes = tf.fill([self.per_cls_maxboxes - objnum, 6], -1)  # 创建一个常量
-                temp_bboxes = tf.to_float(temp_bboxes)
-                _selected_bboxes = tf.concat([selected_bboxes, temp_bboxes], axis=0)
-                return _selected_bboxes
-            def ori_boxes():
-                return selected_bboxes
-
-
-            selected_bboxes = tf.cond(objnum<self.per_cls_maxboxes,true_fn=add_boxes,false_fn=ori_boxes)
-
-            return selected_bboxes
-
-        classes_in_img, idx = tf.unique(bboxes[:, 5])
-        best_bboxes = tf.map_fn(nms_map_fn,classes_in_img,infer_shape=False) #infer_shape=False 禁用对一致输出形状的测试
-
-        # 给变量一名称
-        best_bboxes = tf.add_n([best_bboxes], name='pred_bboxes') # 暂时忽略
-        return best_bboxes
-
-
-
     def _get_pred_bboxes(self,input_data,score_threshold,iou_threshold):
         '''
         根据置信度和nms阈值，获取该批次数据的预测结果框
@@ -714,9 +464,16 @@ class YOLOV3(object):
                                              classes[:, tf.newaxis]],
                                             axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
 
-                # selected_bboxes = selected_bboxes[tf.argsort(tf.cast(selected_bboxes[:, 4]*1000,dtype=tf.int32),direction='DESCENDING')] #根据概率降序排序
 
                 objnum = tf.shape(selected_boxes)[0]  # nms得到的目标数量
+
+                # 根据概率降序排序
+                # indices = tf.argsort(tf.cast(selected_bboxes[:, 4] * 1000, dtype=tf.int32),
+                #                      direction='DESCENDING')  # 索引 # tf 1.14.0有该函数
+                indices = tf.nn.top_k(tf.cast(selected_bboxes[:, 4] * 1000, dtype=tf.int32), k=objnum).indices
+                selected_bboxes = tf.gather(selected_bboxes, indices)
+
+
                 selected_bboxes = selected_bboxes[:self.per_cls_maxboxes]
 
                 def add_boxes():
@@ -792,7 +549,8 @@ if __name__ == '__main__':
     trainable = tf.placeholder(dtype=tf.bool, shape=[], name='training')
     score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
     iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
-    model = YOLOV3(input_data, trainable, score_threshold, iou_threshold)
+    per_cls_maxboxes = tf.placeholder(dtype=tf.int32, shape=[], name='per_cls_maxboxes')
+    model = YOLOV3(input_data, trainable, score_threshold, iou_threshold,per_cls_maxboxes)
     flops = evaluate_flops(graph)
     params = evaluate_params(graph)
     print('flops:', flops)

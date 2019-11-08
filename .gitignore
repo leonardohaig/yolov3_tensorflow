@@ -109,6 +109,7 @@ venv.bak/
 yolov3_coco.pb
 checkpoint/
 data/log/
+data/log2/
 data/log3/
 tools/bdd100k_train.txt
 tools/bdd100k_val.txt

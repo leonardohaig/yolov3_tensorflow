@@ -30,14 +30,19 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    MAX_NUM_IMAGES = 300 #最多处理的图片数量
-    imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
-    labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
-    yolo_format_saved_path = './bdd100k_val.txt' #导出文件保存路径
-    #MAX_NUM_IMAGES = 1000 #最多处理的图片数量
-    #imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
-    #labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_train.json"
-    #yolo_format_saved_path = './bdd100k_train.txt' #导出文件保存路径
+    if 0:#验证集
+        MAX_NUM_IMAGES = 1000  # 最多处理的图片数量
+        imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
+        labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
+        yolo_format_saved_path = './bdd100k_val.txt'  # 导出文件保存路径
+    else:#训练集
+        MAX_NUM_IMAGES = 8000  # 最多处理的图片数量
+        imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
+        labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_train.json"
+        yolo_format_saved_path = './bdd100k_train.txt'  # 导出文件保存路径
+
+
+
 
     needed_classes_file = '../data/classes/bdd100k.names'  # 需要的类别
 
@@ -48,6 +53,7 @@ if __name__ == '__main__':
     with open(labelPath,'r') as labelFile, open(yolo_format_saved_path,'w') as yoloFile:
         lines = json.load(labelFile)
         labelFile.close()
+        MAX_NUM_IMAGES = min(MAX_NUM_IMAGES,len(lines))
 
         for line in tqdm(lines[:MAX_NUM_IMAGES]):
             name = line['name']
@@ -87,14 +93,16 @@ if __name__ == '__main__':
             if len(category_label.strip()):
                 category_label = '{} {}\n'.format(imgPath, category_label)
                 yoloFile.write(category_label)
-                cv2.imshow('image', image)
-                key = cv2.waitKey(nWaitTime)
-                if 27 == key:  # ESC
-                    break
-                elif 32 == key:  # space
-                    nWaitTime = not nWaitTime
+                # cv2.imshow('image', image)
+                # key = cv2.waitKey(nWaitTime)
+                # if 27 == key:  # ESC
+                #     break
+                # elif 32 == key:  # space
+                #     nWaitTime = not nWaitTime
 
-        cv2.destroyAllWindows()
+        # cv2.destroyAllWindows()
+        print('End !')
+        exit(0)
 
 
 

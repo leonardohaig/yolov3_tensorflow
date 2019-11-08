@@ -1,5 +1,8 @@
 Reversion History     
 ========================================    
+* **2019.11.8**     
+1.nms过滤后，选择检测结果之前进行排序操作       
+2.修复`tf1.12.0`中`tf.image.non_max_suppression`导致的程序崩溃bug    
 * **2019.11.5**      
 1.修改backbone为mobilenetV2       
 * **2019.10.29**        

@@ -37,23 +37,28 @@ class YoloTrain(object):
         self.first_stage_epochs = cfg.TRAIN.FISRT_STAGE_EPOCHS
         self.second_stage_epochs = cfg.TRAIN.SECOND_STAGE_EPOCHS
         self.warmup_periods = cfg.TRAIN.WARMUP_EPOCHS
-        self.initial_weight = cfg.TRAIN.INITIAL_WEIGHT
-        self.time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
         self.moving_ave_decay = cfg.YOLO.MOVING_AVE_DECAY #滑动平均时的decay值
-        self.max_bbox_per_scale = 150 #每个尺度上检测目标的数量
-        self.train_logdir = "./data/log3/" # 训练日志保存路径
+
+        self.train_logdir = cfg.TRAIN.LOG_SAVE_DIR  # 训练日志保存路径
+        if os.path.exists(self.train_logdir): shutil.rmtree(self.train_logdir)  # 递归删除文件夹下的所有子文件夹和子文件
+        os.mkdir(self.train_logdir)
+
         self.trainset = Dataset('train')
         self.testset = Dataset('test')
         self.steps_per_period = len(self.trainset)
         self.config = tf.ConfigProto(allow_soft_placement=True)
         # self.config.gpu_options.allow_growth = True
-        self.config.gpu_options.per_process_gpu_memory_fraction = 0.75  # 占用75%显存
+        self.config.gpu_options.per_process_gpu_memory_fraction = 0.8  # 占用80%显存
         self.sess = tf.Session(config=self.config)
-        self.ckpt_savePath = './checkpoint/raccoon_checkpoint' # ckpt文件保存路径
+        self.ckpt_savePath = cfg.TRAIN.MODEL_SAVE_DIR # ckpt文件保存路径
+        if not os.path.exists(self.ckpt_savePath):  # 模型保存路径不存在，则创建该路径
+            os.mkdir(self.ckpt_savePath)
+
         with tf.name_scope('define_input'):
             self.input_data = tf.placeholder(dtype=tf.float32, shape=[None,None,None,None], name='input_data')
             self.score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
             self.iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
+            self.per_cls_maxboxes = tf.placeholder(dtype=tf.int32, shape=[], name='per_cls_maxboxes')
             self.label_sbbox = tf.placeholder(dtype=tf.float32, name='label_sbbox')
             self.label_mbbox = tf.placeholder(dtype=tf.float32, name='label_mbbox')
             self.label_lbbox = tf.placeholder(dtype=tf.float32, name='label_lbbox')
@@ -65,7 +70,7 @@ class YoloTrain(object):
             self.trainable = tf.placeholder(dtype=tf.bool, name='training') # 占位符，对训练时，为True，验证时为False
 
         with tf.name_scope("define_loss"):
-            self.model = YOLOV3(self.input_data, self.trainable,self.score_threshold,self.iou_threshold)
+            self.model = YOLOV3(self.input_data, self.trainable,self.score_threshold,self.iou_threshold,self.per_cls_maxboxes)
             self.net_var = tf.global_variables()
             self.giou_loss, self.conf_loss, self.prob_loss = self.model.compute_loss(
                 self.label_sbbox, self.label_mbbox, self.label_lbbox,
@@ -129,26 +134,15 @@ class YoloTrain(object):
             tf.summary.scalar("conf_loss", self.conf_loss)
             tf.summary.scalar("prob_loss", self.prob_loss)
             tf.summary.scalar("total_loss", self.loss)
-            tf.summary.image("input_gt_image", self.input_gt_image)
-            tf.summary.image("train_pred_image",self.train_pred_image)
+            tf.summary.image("input_gt_image", self.input_gt_image, max_outputs=3)
+            tf.summary.image("train_pred_image",self.train_pred_image, max_outputs=3)
 
-            if os.path.exists(self.train_logdir): shutil.rmtree(self.train_logdir)#递归删除文件夹下的所有子文件夹和子文件
-            os.mkdir(self.train_logdir)
             self.write_op = tf.summary.merge_all()#将所有summary全部保存到磁盘,以便tensorboard显示
             self.summary_writer = tf.summary.FileWriter(self.train_logdir, graph=self.sess.graph)#指定一个文件用来保存图
 
     def train(self):
         self.sess.run(tf.global_variables_initializer())
-        # 寻找是否存在已经训练的coco权重
         # 加载上次已经训练后的权重
-        try:
-            print('=> Restoring weights from: %s ... ' % self.initial_weight)
-            self.loader.restore(self.sess, self.initial_weight)
-        except:
-            print('=> %s does not exist !!!' % self.initial_weight)
-            print('=> Now it starts to train YOLOV3 from scratch ...')
-            self.first_stage_epochs = 0
-
         try:
             print('=> Restoring weights from last trained file ...')
             last_checkpoint = tf.train.latest_checkpoint(self.ckpt_savePath)  # 会自动找到最近保存的变量文件
@@ -156,6 +150,8 @@ class YoloTrain(object):
         except:
             print('=> Can not find last trained file !!!')
             print('=> Now it starts to train YOLOV3 from scratch ...')
+            self.first_stage_epochs = 0
+
 
         print('=> Start train,total epoch is:%d' % (self.first_stage_epochs + self.second_stage_epochs) )
 
@@ -167,6 +163,7 @@ class YoloTrain(object):
 
             pbar = tqdm(self.trainset)
             train_epoch_loss, test_epoch_loss = [], []
+            global_step_val = 0 #当前的训练步数
 
             for train_data in pbar:
                 _, summary, train_step_loss, global_step_val, pred_boxes= self.sess.run(
@@ -181,12 +178,19 @@ class YoloTrain(object):
                         self.input_gt_image: train_data[7],
                         self.score_threshold: 0.3,
                         self.iou_threshold: 0.45,
+                        self.per_cls_maxboxes: 50,
                         self.trainable: True,
                     })
 
+                global_step_val = int(global_step_val)
                 train_epoch_loss.append(train_step_loss)
                 self.summary_writer.add_summary(summary, global_step_val)
-                pbar.set_description("train loss: %.2f" % train_step_loss)
+                pbar.set_description("Step:%d train loss: %.2f" % (global_step_val,train_step_loss))
+
+                #每500step额外保存一个模型
+                if global_step_val % 500 == 0:
+                    ckpt_file = os.path.join(self.ckpt_savePath, 'yolov3_model_%d-epoch.ckpt' % epoch)
+                    self.saver.save(self.sess, ckpt_file, global_step=global_step_val)
 
             for test_data in self.testset:
                 test_step_loss = self.sess.run(self.loss, feed_dict={
@@ -204,15 +208,11 @@ class YoloTrain(object):
 
             train_epoch_loss, test_epoch_loss = np.mean(train_epoch_loss), np.mean(test_epoch_loss)
 
-            if not os.path.exists(self.ckpt_savePath):#模型保存路径不存在，则创建该路径
-                os.mkdir(self.ckpt_savePath)
-
-            ckpt_file = os.path.join(self.ckpt_savePath,'yolov3_test_loss=%.4f.ckpt' % test_epoch_loss)
-            #ckpt_file = "./checkpoint/yolov3_test_loss=%.4f.ckpt" % test_epoch_loss
+            ckpt_file = os.path.join(self.ckpt_savePath,'yolov3_test_loss=%.4f_%d-epoch.ckpt' %(test_epoch_loss,epoch))
             log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
             print("=> Epoch: %2d/%2d Time: %s Train loss: %.2f Test loss: %.2f Saving %s ..."
                   % (epoch,(self.first_stage_epochs + self.second_stage_epochs),log_time, train_epoch_loss, test_epoch_loss, ckpt_file))
-            self.saver.save(self.sess, ckpt_file, global_step=epoch)
+            self.saver.save(self.sess, ckpt_file, global_step=global_step_val)
 
 
 if __name__ == '__main__':
