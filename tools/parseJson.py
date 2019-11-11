@@ -30,13 +30,13 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    if 0:#验证集
-        MAX_NUM_IMAGES = 1000  # 最多处理的图片数量
+    if 1:#验证集
+        MAX_NUM_IMAGES = 2000  # 最多处理的图片数量
         imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
         yolo_format_saved_path = './bdd100k_val.txt'  # 导出文件保存路径
     else:#训练集
-        MAX_NUM_IMAGES = 8000  # 最多处理的图片数量
+        MAX_NUM_IMAGES = 10000  # 最多处理的图片数量
         imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_train.json"
         yolo_format_saved_path = './bdd100k_train.txt'  # 导出文件保存路径
@@ -77,11 +77,11 @@ if __name__ == '__main__':
                     cls_id = needed_classes[category]
                     w = xmax - xmin
                     h = ymax - ymin
-                    #根据框的大小过滤一部分目标
-                    if h<(10.0/416.0)*H:
-                        continue
-                    if w<(10.0/416.0)*W:
-                        continue
+                    # #根据框的大小过滤一部分目标
+                    # if h<(10.0/416.0)*H:
+                    #     continue
+                    # if w<(10.0/416.0)*W:
+                    #     continue
 
                     _str = '{},{},{},{},{} '.format(xmin, ymin, xmax, ymax, cls_id)
                     category_label += _str

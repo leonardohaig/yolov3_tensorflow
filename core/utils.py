@@ -279,3 +279,39 @@ def draw_batch_bbox(batch_image,batch_bboxes):
     _batch_image = _batch_image * (1.0/255.0)# 归一化0-1区间，类型为float32
 
     return _batch_image
+
+def get_origin_boxes(pred_bbox,org_img_shape,input_size,score_threshold=0.3):
+    '''
+    根据网络输出结果，获取矩形框在原始图像上的位置
+    :param pred_bbox:网络预测结果,shape(N,6) N--类别数量,6:[xmin,ymin,xmax,ymax,prob,classid]
+    :param org_img_shape:原始图像尺寸(H,W)
+    :param input_size:网络输入图像尺寸
+    :param score_threshold:置信度阈值
+    :return:矩形框在原始图像上的位置
+    '''
+
+    # 过滤由于填充batch造成的无效的检测框
+    id_mask = pred_bbox[:, 5] >= -0.1
+
+    # 置信度过滤
+    score_mask = pred_bbox[:, 4] >= score_threshold
+
+    mask = np.logical_and(id_mask, score_mask)
+    pred_bbox = pred_bbox[mask]
+
+
+    # 坐标转换
+    # (xmin, ymin, xmax, ymax) -> (xmin_org, ymin_org, xmax_org, ymax_org)
+    org_h, org_w = org_img_shape
+    resize_ratio = min(input_size / org_w, input_size / org_h)
+
+    dw = (input_size - resize_ratio * org_w) / 2
+    dh = (input_size - resize_ratio * org_h) / 2
+
+    pred_coor = pred_bbox[:,0:4]
+    pred_coor[:, 0::2] = 1.0 * (pred_coor[:, 0::2] - dw) / resize_ratio  # 计算xmin和xmax在输入图像上的坐标
+    pred_coor[:, 1::2] = 1.0 * (pred_coor[:, 1::2] - dh) / resize_ratio  # 计算ymin和ymax在输入图像上的坐标
+
+    pred_bbox[:, 0:4] = pred_coor
+
+    return pred_bbox

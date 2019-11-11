@@ -3,7 +3,7 @@
 
 #============================#
 #Program:video_demo.py
-#Date:2019.08.14
+#Date:2019.11.11
 #Author:liheng
 #Version:V1.0
 #============================#
@@ -19,28 +19,29 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 
 # 张量名称
-return_elements = ["input/input_data:0", "pred_sbbox/concat_2:0", "pred_mbbox/concat_2:0", "pred_lbbox/concat_2:0"]
+return_elements = ["input/input_data:0", "pred_res/pred_bboxes:0"]
 pb_file         = "./yolov3_bdd100k.pb"
 video_path      = "/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-145101.mp4"
 bSaveResult     = False  # 是否保存结果视频
 # video_path      = 0
 num_classes     = 8 # 检测目标数量
-input_size      = 416
+input_size      = 320 # 416
 graph           = tf.Graph()
 return_tensors  = utils.read_pb_return_tensors(graph, pb_file, return_elements)
 
 
 with tf.Session(graph=graph) as sess:
     vid = cv2.VideoCapture(video_path)
+    frame_size = (int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT)),int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))) # 此处需要(H,W)格式
     if bSaveResult:
         videoWriter = cv2.VideoWriter(video_path+'_res.avi',
                                       cv2.VideoWriter_fourcc(*'MJPG'),
                                       20,
-                                      (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+                                      (frame_size[1],frame_size[0]))# 此处需要(W,H)格式
 
     nWaitTime = 1
     nFrameIdx = 0
-    #cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+    # cv2.namedWindow("result", cv2.WINDOW_NORMAL)
     while True:
         return_value, frame = vid.read()
         nFrameIdx += 1
@@ -49,25 +50,17 @@ with tf.Session(graph=graph) as sess:
             print("No image!")
             break
 
-        frame_size = frame.shape[:2]
+        #frame_size = frame.shape[:2]
         image_data = utils.image_preprocess(np.copy(frame), [input_size, input_size])#图像预处理,转换为RGB格式，并进行缩放
         image_data = image_data[np.newaxis, ...]#增加一维，shape从(416,416,3)变为(1,416,416,3)
 
         prev_time = time.time()
 
-        pred_sbbox, pred_mbbox, pred_lbbox = sess.run(
-            [return_tensors[1], return_tensors[2], return_tensors[3]],
-                    feed_dict={ return_tensors[0]: image_data})
-        # pred_sbbox.shape (1,52,52,3,85)
-        # pred_mbbox.shape (1,26,26,3,85)
-        # pred_lbbox.shape (1,13,13,3,85)
+        pred_bbox = sess.run([return_tensors[1]], feed_dict={ return_tensors[0]: image_data})
 
-        pred_bbox = np.concatenate([np.reshape(pred_sbbox, (-1, 5 + num_classes)),#shape:(8112,85)
-                                    np.reshape(pred_mbbox, (-1, 5 + num_classes)),#shape:(2028,85)
-                                    np.reshape(pred_lbbox, (-1, 5 + num_classes))], axis=0)#shape:(507,85),pred_bbox.shape:(10647,85)
-
-        bboxes = utils.postprocess_boxes(pred_bbox, frame_size, input_size, 0.3)#
-        bboxes = utils.nms(bboxes, 0.45, method='nms')
+        bboxes = np.reshape(pred_bbox,(-1,6))
+        bboxes = utils.get_origin_boxes(bboxes,frame_size,input_size,0.3)
+        # bboxes = utils.nms(bboxes, 0.45, method='nms')
         image = utils.draw_bbox(frame, bboxes)
 
         curr_time = time.time()
@@ -75,7 +68,7 @@ with tf.Session(graph=graph) as sess:
 
         result = np.asarray(image)
         info = "Frame:%d Fps: %.2f time: %.2f ms" %(nFrameIdx,1.0/exec_time,1000*exec_time)
-        cv2.putText(result, info, (0,25), cv2.FONT_HERSHEY_SIMPLEX,1.0, (0, 0, 255), 2, lineType=cv2.LINE_AA)
+        cv2.putText(result, info, (0,25), cv2.FONT_HERSHEY_SIMPLEX,0.5, (0, 0, 255), 1, lineType=cv2.LINE_AA)
         cv2.imshow("result", result)
         if bSaveResult:
             videoWriter.write(result)
