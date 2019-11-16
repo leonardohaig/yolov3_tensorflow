@@ -68,6 +68,8 @@ class YOLOV3(object):
             self.pred_res_boxes = self._get_pred_bboxes(input_data,score_threshold,iou_threshold)
             #预测结果框，shape[batchsize,num_class*per_cls_maxboxes,6]
 
+            self.pred_res_openvino_boxes = self._get_pred_openvino_bboxes(input_data)
+
             # pred_?是YOLO预测bbox的信息(x, y, w, h, conf, prob)，(x, y, w, h)
             # 的大小是相对于input_size的
 
@@ -541,11 +543,65 @@ class YOLOV3(object):
 
         return self.pred_image
 
+    def _get_pred_openvino_bboxes(self,input_data):
+        '''
+        获取检测结果框，openvino专用,检测结果未经过阈值过滤，NMS过滤
+        :param input_data:
+        :return:
+        '''
+
+        # 取出batch中的1个image的检测结果进行处理
+        def batch_map_fn_for_openvino(args):
+            pred_sbbox,pred_mbbox,pred_lbbox = args
+
+            pred_bbox = tf.concat([tf.reshape(pred_sbbox, (-1, 5 + self.num_class)),
+                                   tf.reshape(pred_mbbox, (-1, 5 + self.num_class)),
+                                   tf.reshape(pred_lbbox, (-1, 5 + self.num_class))],
+                                  axis=0)  # pred_bbox.shape:(?,85)
+
+            pred_xywh = pred_bbox[:, 0:4]  # 4列数据内容为：Center_x,Center_y,width,height(中心点坐标+宽高)
+            pred_conf = pred_bbox[:, 4]  # 含有物体的概率
+            pred_prob = pred_bbox[:, 5:]  # 各目标的概率
+
+            # # (1)求坐标 (x, y, w, h) --> (xmin, ymin, xmax, ymax)
+            pred_coor = tf.concat([pred_xywh[:, :2] - pred_xywh[:, 2:] * 0.5,
+                                   pred_xywh[:, :2] + pred_xywh[:, 2:] * 0.5], axis=-1)
+
+
+            # 求每一行检测结果的类别
+            classes = tf.argmax(pred_prob, axis=-1)  # 找出概率最大的class索引，即：每一行检测结果所代表的类别
+            classes = tf.cast(classes,dtype=tf.float32)
+
+            # 求属于该类别的概率
+            max_value = tf.reduce_max(pred_prob, reduction_indices=[1])  # 找出行上最大值，即找出概率最大的class
+            scores = pred_conf * max_value
+
+            # 将坐标,类别，概率合并
+            bboxes = tf.concat([pred_coor, scores[:, tf.newaxis], classes[:, tf.newaxis]],
+                               axis=-1)  # [xmin,ymin,xmax,ymax,prob,classid]
+
+
+
+            return bboxes
+
+        openvino_bboxes = tf.map_fn(batch_map_fn_for_openvino,
+                                (self.pred_sbbox, self.pred_mbbox, self.pred_lbbox),
+                                dtype=tf.float32,
+                                infer_shape=False)
+
+        openvino_bboxes = tf.identity(openvino_bboxes,name='openvino_pred_bboxes')
+
+        return openvino_bboxes
+
+    def get_imgage_openvino_predbboxes(self):
+        return self.pred_res_openvino_boxes
+
+
 
 if __name__ == '__main__':
     graph = tf.get_default_graph()
-    # input_data = tf.placeholder(dtype=tf.float32, shape=[5, 416, 416, 3], name='input_data')
-    input_data = tf.placeholder(dtype=tf.float32, shape=[None, None, None, None], name='input_data')
+    input_data = tf.placeholder(dtype=tf.float32, shape=[5, 416, 416, 3], name='input_data')
+    # input_data = tf.placeholder(dtype=tf.float32, shape=[None, None, None, None], name='input_data')
     trainable = tf.placeholder(dtype=tf.bool, shape=[], name='training')
     score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
     iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
