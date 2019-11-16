@@ -14,8 +14,8 @@ import tensorflow as tf
 from tensorflow.python.platform import gfile
 from core.yolov3 import YOLOV3
 
-pb_file = "./yolov3_bdd100k.pb" # 保存的.pb文件路径
-ckpt_file = "/home/liheng/liheng/liheng/bdd100k_mobilenet_checkpoint/yolov3_model_18-epoch.ckpt-13500" # 待转换的.ckpt文件路径
+pb_file = "../yolov3_bdd100k_checkpoint/yolov3_bdd100k.pb" # 保存的.pb文件路径
+ckpt_file = "../yolov3_bdd100k_checkpoint/yolov3_model_12-epoch.ckpt-55000" # 待转换的.ckpt文件路径
 
 # 需要保存的指定的 节点 名称,而非张量名称
 # 节点名称 pred_sbbox 指变量作用空间，concat_2来源于 decode 函数tf.concat操作，由于代码中未显式指定该操作的名称，因此给予了默认名称
@@ -26,14 +26,15 @@ ckpt_file = "/home/liheng/liheng/liheng/bdd100k_mobilenet_checkpoint/yolov3_mode
 # 故务必对concat_2的来源有所知晓！
 # output_node_names = ["input/input_data", "pred_sbbox/concat_2", "pred_mbbox/concat_2", "pred_lbbox/concat_2"]
 output_node_names = ["input/input_data", "pred_res/pred_bboxes"]# 最终结果
-# output_node_names = ["input/input_data", "pred_sbbox/concat_2", "pred_mbbox/concat_2", "pred_lbbox/concat_2","pred_res/pred_bboxes"]
+output_node_names = ["input/input_data", "pred_res/openvino_pred_bboxes"]
 
 # 定义模型的输入
 with tf.name_scope('input'):
-    input_data = tf.placeholder(dtype=tf.float32, name='input_data')
+    # input_data = tf.placeholder(dtype=tf.float32, name='input_data')
+    input_data = tf.placeholder(dtype=tf.float32, shape=[1,320,320,3],name='input_data')
     trainable = tf.convert_to_tensor(False,dtype=tf.bool,name='training')
 
-model = YOLOV3(input_data, trainable=trainable)# 恢复模型之前，首先定义一遍网络结构，然后才能把变量的值恢复到网络中,注意此处trainable=False
+model = YOLOV3(input_data, trainable=trainable, bUsedForOpenVINo=True)# 恢复模型之前，首先定义一遍网络结构，然后才能把变量的值恢复到网络中,注意此处trainable=False
 print(model.conv_sbbox, model.conv_mbbox, model.conv_lbbox)
 print(model.pred_sbbox, model.pred_mbbox, model.pred_lbbox)
 print(model.pred_res_boxes)
