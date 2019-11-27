@@ -108,6 +108,7 @@ def parse_anno(annotation_path, target_size=None):
     for line in anno:
         constent = line.strip().split(' ')
         img_h,img_w,_c = cv2.imread(constent[0],cv2.IMREAD_COLOR).shape
+        # img_h, img_w, _c = 720,1280,3
         for item in constent[1:]:
             x_min, y_min, x_max, y_max, class_id = list(map(float,item.split(',')))
             width = x_max - x_min
@@ -145,7 +146,7 @@ if __name__ == '__main__':
     # target resize format: [width, height]
     # if target_resize is speficied, the anchors are on the resized image scale
     # if target_resize is set to None, the anchors are on the original image scale
-    target_size = [416, 416]
+    target_size = [320, 320]
     annotation_path = "tools/bdd100k_train.txt"
     anno_result = parse_anno(annotation_path, target_size=target_size)
     anchors, ave_iou = get_kmeans(anno_result, 9)

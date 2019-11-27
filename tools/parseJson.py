@@ -30,7 +30,7 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    if 1:#验证集
+    if 0:#验证集
         MAX_NUM_IMAGES = 2000  # 最多处理的图片数量
         imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
@@ -77,6 +77,10 @@ if __name__ == '__main__':
                     cls_id = needed_classes[category]
                     w = xmax - xmin
                     h = ymax - ymin
+
+                    if w<3:continue
+                    if h<3:continue
+
                     # #根据框的大小过滤一部分目标
                     # if h<(10.0/416.0)*H:
                     #     continue

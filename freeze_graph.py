@@ -14,8 +14,8 @@ import tensorflow as tf
 from tensorflow.python.platform import gfile
 from core.yolov3 import YOLOV3
 
-pb_file = "../yolov3_bdd100k_checkpoint/yolov3_bdd100k.pb" # 保存的.pb文件路径
-ckpt_file = "../yolov3_bdd100k_checkpoint/yolov3_model_12-epoch.ckpt-55000" # 待转换的.ckpt文件路径
+pb_file = "/home/liheng/demo_ckpt/yolov3_bdd100k.pb" # 保存的.pb文件路径
+ckpt_file = "/home/liheng/demo_ckpt/yolov3_model_53-epoch.ckpt-261500" # 待转换的.ckpt文件路径
 
 # 需要保存的指定的 节点 名称,而非张量名称
 # 节点名称 pred_sbbox 指变量作用空间，concat_2来源于 decode 函数tf.concat操作，由于代码中未显式指定该操作的名称，因此给予了默认名称

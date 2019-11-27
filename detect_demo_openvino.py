@@ -38,10 +38,10 @@ def build_argparser():
     args = parser.add_argument_group('Options')
     args.add_argument('-h', '--help', action='help', default=SUPPRESS, help='Show this help message and exit.')
     args.add_argument("-m", "--model", help="Required. Path to an .xml file with a trained model.",
-                      required=False, type=str, default='../yolov3_bdd100k_checkpoint/yolov3_bdd100k.xml')
+                      required=False, type=str, default='/home/liheng/demo_ckpt/FP16/yolov3_bdd100k.xml')
     args.add_argument("-i", "--input",
                       help="Required. Path to video file or image. 'cam' for capturing video stream from camera",
-                      required=False, type=str,default='../yolov3_bdd100k_checkpoint/LDW_Video-20190416-152012.avi')
+                      required=False, type=str,default='/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-153700.mp4')
     args.add_argument("-l", "--cpu_extension",
                       help="Optional. Required for CPU custom layers. Absolute path to a shared library with the "
                            "kernels implementations.", type=str,
@@ -122,7 +122,7 @@ def main():
     next_request_id = 1
 
     log.info("Starting inference in async mode...")
-    is_async_mode = True
+    is_async_mode = False
     render_time = 0
     ret, frame = cap.read()
 
