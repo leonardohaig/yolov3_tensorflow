@@ -15,7 +15,7 @@ from tensorflow.python.platform import gfile
 from core.yolov3 import YOLOV3
 
 pb_file = "/home/liheng/demo_ckpt/yolov3_bdd100k.pb" # 保存的.pb文件路径
-ckpt_file = "/home/liheng/demo_ckpt/yolov3_model_53-epoch.ckpt-261500" # 待转换的.ckpt文件路径
+ckpt_file = "/home/liheng/demo_ckpt/yolov3_model_1-epoch.ckpt-500" # 待转换的.ckpt文件路径
 
 # 需要保存的指定的 节点 名称,而非张量名称
 # 节点名称 pred_sbbox 指变量作用空间，concat_2来源于 decode 函数tf.concat操作，由于代码中未显式指定该操作的名称，因此给予了默认名称
@@ -25,8 +25,11 @@ ckpt_file = "/home/liheng/demo_ckpt/yolov3_model_53-epoch.ckpt-261500" # 待转�
 # Tensor("pred_lbbox/concat_2:0", shape=(?, ?, ?, 3, 85), dtype=float32)
 # 故务必对concat_2的来源有所知晓！
 # output_node_names = ["input/input_data", "pred_sbbox/concat_2", "pred_mbbox/concat_2", "pred_lbbox/concat_2"]
+bFreezedOpenVion = False
 output_node_names = ["input/input_data", "pred_res/pred_bboxes"]# 最终结果
-output_node_names = ["input/input_data", "pred_res/openvino_pred_bboxes"]
+
+# bFreezedOpenVion = True
+# output_node_names = ["input/input_data", "pred_res/openvino_pred_bboxes"]
 
 # 定义模型的输入
 with tf.name_scope('input'):
@@ -34,7 +37,7 @@ with tf.name_scope('input'):
     input_data = tf.placeholder(dtype=tf.float32, shape=[1,320,320,3],name='input_data')
     trainable = tf.convert_to_tensor(False,dtype=tf.bool,name='training')
 
-model = YOLOV3(input_data, trainable=trainable, bUsedForOpenVINo=True)# 恢复模型之前，首先定义一遍网络结构，然后才能把变量的值恢复到网络中,注意此处trainable=False
+model = YOLOV3(input_data, trainable=trainable, bUsedForOpenVINo=bFreezedOpenVion)# 恢复模型之前，首先定义一遍网络结构，然后才能把变量的值恢复到网络中,注意此处trainable=False
 print(model.conv_sbbox, model.conv_mbbox, model.conv_lbbox)
 print(model.pred_sbbox, model.pred_mbbox, model.pred_lbbox)
 print(model.pred_res_boxes)

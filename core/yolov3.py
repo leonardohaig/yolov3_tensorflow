@@ -293,13 +293,62 @@ class YOLOV3(object):
 
         return iou
 
+    def bbox_diou(self,boxes1, boxes2):
+        '''
+        cal DIOU of two boxes or batch boxes
+        :param boxes1:
+        :param boxes2:
+        :return:
+        '''
+
+        boxes1 = tf.concat([boxes1[..., :2] - boxes1[..., 2:] * 0.5,
+                            boxes1[..., :2] + boxes1[..., 2:] * 0.5], axis=-1)
+        boxes2 = tf.concat([boxes2[..., :2] - boxes2[..., 2:] * 0.5,
+                            boxes2[..., :2] + boxes2[..., 2:] * 0.5], axis=-1)
+
+        boxes1 = tf.concat([tf.minimum(boxes1[..., :2], boxes1[..., 2:]),
+                            tf.maximum(boxes1[..., :2], boxes1[..., 2:])], axis=-1)
+        boxes2 = tf.concat([tf.minimum(boxes2[..., :2], boxes2[..., 2:]),
+                            tf.maximum(boxes2[..., :2], boxes2[..., 2:])], axis=-1)
+
+        # cal the box's area of boxes1 and boxess
+        boxes1Area = (boxes1[..., 2] - boxes1[..., 0]) * (boxes1[..., 3] - boxes1[..., 1])
+        boxes2Area = (boxes2[..., 2] - boxes2[..., 0]) * (boxes2[..., 3] - boxes2[..., 1])
+
+        # cal Intersection
+        left_up = tf.maximum(boxes1[..., :2], boxes2[..., :2])
+        right_down = tf.minimum(boxes1[..., 2:], boxes2[..., 2:])
+
+        inter_section = tf.maximum(right_down - left_up, 0.0)
+        inter_area = inter_section[..., 0] * inter_section[..., 1]
+        union_area = boxes1Area + boxes2Area - inter_area
+        ious = tf.maximum(1.0 * inter_area / union_area, 0.0)
+
+        # cal outer boxes
+        outer_left_up = tf.minimum(boxes1[..., :2], boxes2[..., :2])
+        outer_right_down = tf.maximum(boxes1[..., 2:], boxes2[..., 2:])
+        outer = tf.maximum(outer_right_down - outer_left_up, 0.0)
+        outer_diagonal_line = tf.square(outer[..., 0]) + tf.square(outer[..., 1])
+
+        # cal center distance
+        boxes1_center = (boxes1[..., :2] + boxes1[..., 2:]) * 0.5
+        boxes2_center = (boxes2[..., :2] + boxes2[..., 2:]) * 0.5
+        center_dis = tf.square(boxes1_center[..., 0] - boxes2_center[..., 0]) + \
+                     tf.square(boxes1_center[..., 1] - boxes2_center[..., 1])
+
+        # cal diou
+        dious = ious - center_dis / outer_diagonal_line
+
+        return dious
+
     def loss_layer(self, conv, pred, label, bboxes, anchors, stride):
         '''
 
         :param conv:网络计算得到的结果
         :param pred:对conv进行decode得到的结果
         :param label:真实值？和pred.shape一致(batch_size,feature_map_size,feature_map_size,3,5+num_class)
-        :param bboxes:真实值？shape(batch_size,?/150,4)150表示最多检测150个目标，4表示边框的坐标信息
+        :param bboxes:真实值？shape(batch_size,?/150,4)150表示最多检测150个目标，
+                        4表示边框的坐标信息,注意其和label的区别，lable可以理解为将真实值转换为网络输出的形式进行表示
         :param anchors:
         :param stride:
         :return:
@@ -318,15 +367,20 @@ class YOLOV3(object):
         pred_conf = pred[:, :, :, :, 4:5]
 
         label_xywh = label[:, :, :, :, 0:4]
-        respond_bbox = label[:, :, :, :, 4:5]  # 置信度，判断网格内有无物体
+        respond_bbox = label[:, :, :, :, 4:5]  # 置信度，判断网格内有无物体，
+                                            # respond_bbox 的意思是如果网格单元中包含物体，
+                                            # 那么就会计算边界框损失
         label_prob = label[:, :, :, :, 5:]
 
-        giou = tf.expand_dims(self.bbox_giou(pred_xywh, label_xywh), axis=-1)
+        # giou = tf.expand_dims(self.bbox_giou(pred_xywh, label_xywh), axis=-1)
+        giou = tf.expand_dims(self.bbox_diou(pred_xywh, label_xywh), axis=-1) # 修改为diou
         input_size = tf.cast(input_size, tf.float32)
 
         # GIou loss
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
-        giou_loss = respond_bbox * bbox_loss_scale * (1 - giou)
+        giou_loss = respond_bbox * bbox_loss_scale * (1 - giou) #两个边界框之间的 GIoU 值越大，
+                                                             # giou 的损失值就会越小, 因此网络会朝着
+                                                                # 预测框与真实框重叠度较高的方向去优化
 
         # 找出与真实框 iou 值最大的预测框
         iou = self.bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
@@ -343,7 +397,8 @@ class YOLOV3(object):
                 +
                 respond_bgd * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
         )
-
+        
+        # 分类损失
         prob_loss = respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_prob, logits=conv_raw_prob)
 
         giou_loss = tf.reduce_mean(tf.reduce_sum(giou_loss, axis=[1, 2, 3, 4]))
@@ -613,7 +668,19 @@ if __name__ == '__main__':
     score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
     iou_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='iou_threshold')
     per_cls_maxboxes = tf.placeholder(dtype=tf.int32, shape=[], name='per_cls_maxboxes')
+
+    label_sbbox = tf.placeholder(dtype=tf.float32, name='label_sbbox')
+    label_mbbox = tf.placeholder(dtype=tf.float32, name='label_mbbox')
+    label_lbbox = tf.placeholder(dtype=tf.float32, name='label_lbbox')
+    true_sbboxes = tf.placeholder(dtype=tf.float32, name='sbboxes')
+    true_mbboxes = tf.placeholder(dtype=tf.float32, name='mbboxes')
+    true_lbboxes = tf.placeholder(dtype=tf.float32, name='lbboxes')
+
     model = YOLOV3(input_data, trainable, score_threshold, iou_threshold, per_cls_maxboxes)
+
+    giou_loss, conf_loss, prob_loss = model.compute_loss(label_sbbox, label_mbbox, label_lbbox,
+                                                         true_sbboxes, true_mbboxes, true_lbboxes)
+
     flops = evaluate_flops(graph)
     params = evaluate_params(graph)
     print('flops:', flops)

@@ -20,8 +20,8 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "" #不采用GPU
 
 # 张量名称
 return_elements = ["input/input_data:0", "pred_res/pred_bboxes:0"]
-pb_file         = "./yolov3_bdd100k.pb"
-video_path      = "/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-145101.mp4"
+pb_file         = "/home/liheng/demo_ckpt/yolov3_bdd100k.pb"
+video_path      = "/home/liheng/ADAS_Video/1120/ADAS_Video-20191120-154418.mp4"
 bSaveResult     = False  # 是否保存结果视频
 # video_path      = 0
 num_classes     = 8 # 检测目标数量
