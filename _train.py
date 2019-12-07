@@ -214,6 +214,10 @@ class YoloTrain(object):
                   % (epoch,(self.first_stage_epochs + self.second_stage_epochs),log_time, train_epoch_loss, test_epoch_loss, ckpt_file))
             self.saver.save(self.sess, ckpt_file, global_step=global_step_val)
 
+        #结束数据读取线程
+        self.trainset.stopThread()
+        self.testset.stopThread()
+
 
 if __name__ == '__main__':
     YoloTrain().train()

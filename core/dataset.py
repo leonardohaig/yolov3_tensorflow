@@ -2,6 +2,11 @@
 #coding=utf-8
 
 #============================#
+#Update content:采用线程和队列进行数据读取和存储
+#Date:2019.12.7
+#Author:liheng
+#Version:V1.2
+
 #Update content:返回批数据时，增加ground truth box image的显示
 #Date:2019.10.26
 #Author:liheng
@@ -26,6 +31,9 @@ import numpy as np
 import tensorflow as tf
 import core.utils as utils
 from core.config import cfg
+from queue import Queue
+import queue
+import threading
 
 
 class Dataset(object):
@@ -53,6 +61,11 @@ class Dataset(object):
         self.num_batchs = int(np.ceil(self.num_samples / self.batch_size))#训练用/验证用批次数量
         self.batch_count = 0
 
+        self.__data_queue = Queue(maxsize=3)#通过队列储存数据
+        self.__bQuitDataThread = False #保证可以在循环中不断读取数据，防止Queue() Full 不能结束线程
+        self.__data_thread = threading.Thread(target=self.__thread_readData)#线程不断读取数据
+        self.__data_thread.start()#开启线程
+
 
     def load_annotations(self, dataset_type):
         '''
@@ -69,40 +82,47 @@ class Dataset(object):
     def __iter__(self):
         return self
 
-    def __next__(self):# 返回下一批次的数据
+    def __thread_readData(self):
+        '''
+        该线程不断读取数据，储存于队列中，生产者线程
+        :return:
+        '''
+        idx=0
+        while (idx < self.num_batchs and not self.__bQuitDataThread):
+            with tf.device('/cpu:0'):  # 指定设备为cpu，意味着以下操作在cpu上完成
+                self.train_input_size = random.choice(self.train_input_sizes)  # 网络输入图像尺寸，随机选择，非固定的416X416，
+                self.train_output_sizes = self.train_input_size // self.strides  # 网络输出图像尺寸，指定输出尺寸，可以保证权重矩阵维度一致
 
-        with tf.device('/cpu:0'):# 指定设备为cpu，意味着以下操作在cpu上完成
-            self.train_input_size = random.choice(self.train_input_sizes) # 网络输入图像尺寸，随机选择，非固定的416X416，
-            self.train_output_sizes = self.train_input_size // self.strides # 网络输出图像尺寸，指定输出尺寸，可以保证权重矩阵维度一致
+                batch_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3))
+                batch_gt_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3),
+                                          dtype=np.float32)  # 绘制有ground truth的图像
 
-            batch_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3))
-            batch_gt_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3),dtype=np.float32)#绘制有ground truth的图像
+                batch_label_sbbox = np.zeros((self.batch_size, self.train_output_sizes[0], self.train_output_sizes[0],
+                                              self.anchor_per_scale, 5 + self.num_classes))
+                batch_label_mbbox = np.zeros((self.batch_size, self.train_output_sizes[1], self.train_output_sizes[1],
+                                              self.anchor_per_scale, 5 + self.num_classes))
+                batch_label_lbbox = np.zeros((self.batch_size, self.train_output_sizes[2], self.train_output_sizes[2],
+                                              self.anchor_per_scale, 5 + self.num_classes))
 
-            batch_label_sbbox = np.zeros((self.batch_size, self.train_output_sizes[0], self.train_output_sizes[0],
-                                          self.anchor_per_scale, 5 + self.num_classes))
-            batch_label_mbbox = np.zeros((self.batch_size, self.train_output_sizes[1], self.train_output_sizes[1],
-                                          self.anchor_per_scale, 5 + self.num_classes))
-            batch_label_lbbox = np.zeros((self.batch_size, self.train_output_sizes[2], self.train_output_sizes[2],
-                                          self.anchor_per_scale, 5 + self.num_classes))
+                batch_sbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
+                batch_mbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
+                batch_lbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
 
-            batch_sbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
-            batch_mbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
-            batch_lbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
-
-            num = 0
-            if self.batch_count < self.num_batchs:
+                #读取数据，构造batch
+                num = 0
                 while num < self.batch_size:
                     index = self.batch_count * self.batch_size + num
                     if index >= self.num_samples: index -= self.num_samples
                     annotation = self.annotations[index]
-                    image, bboxes = self.parse_annotation(annotation) # 读取图像，box(位置+类别)，图像已经经过预处理、数据增强等变换
-                    label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
+                    image, bboxes = self.parse_annotation(annotation)  # 读取图像，box(位置+类别)，图像已经经过预处理、数据增强等变换
+                    label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(
+                        bboxes)
 
                     # 在image标出true box及其类别
-                    _temp = np.ones(bboxes.shape[0])#作为置信度
-                    _bboxes = np.insert(bboxes,4,values=_temp,axis=1)#增加一列
-                    gt_image = utils.draw_bbox(image*255,_bboxes) #输入image类型需要为uint8类型(0-255之间),
-                    batch_gt_image[num, :, :, :] = gt_image/255.0 # 归一化0-1区间，类型为float32
+                    _temp = np.ones(bboxes.shape[0])  # 作为置信度
+                    _bboxes = np.insert(bboxes, 4, values=_temp, axis=1)  # 增加一列
+                    gt_image = utils.draw_bbox(image * 255, _bboxes)  # 输入image类型需要为uint8类型(0-255之间),
+                    batch_gt_image[num, :, :, :] = gt_image / 255.0  # 归一化0-1区间，类型为float32
 
                     batch_image[num, :, :, :] = image
                     batch_label_sbbox[num, :, :, :, :] = label_sbbox
@@ -112,13 +132,88 @@ class Dataset(object):
                     batch_mbboxes[num, :, :] = mbboxes
                     batch_lbboxes[num, :, :] = lbboxes
                     num += 1
+
+                #将数据存放于队列中
+                try:
+                    self.__data_queue.put([batch_image,
+                                           batch_label_sbbox, batch_label_mbbox, batch_label_lbbox,
+                                           batch_sbboxes, batch_mbboxes, batch_lbboxes,
+                                           batch_gt_image], timeout=10) #10s内仍为Full状态，
+                                        # 考虑程序可能是已经运行结束了，需要退出该线程了，到while处进行判断是否要退出
+                    idx += 1
+                except queue.Full:
+                    pass # 针对Full的异常不用进行处理，只用继续循环即可
+
+        # print("Read data complete !")
+    def stopThread(self):
+        self.__bQuitDataThread = True
+        self.__data_thread.join()
+
+    def __next__(self):# 返回下一批次的数据
+        with tf.device('/cpu:0'):# 指定设备为cpu，意味着以下操作在cpu上完成
+            if self.batch_count < self.num_batchs:
                 self.batch_count += 1
-                return batch_image, batch_label_sbbox, batch_label_mbbox, batch_label_lbbox, \
-                       batch_sbboxes, batch_mbboxes, batch_lbboxes,batch_gt_image
+                return self.__data_queue.get()
             else:
+                self.__data_thread.join()
                 self.batch_count = 0
                 np.random.shuffle(self.annotations)
+
+                #重新开启线程
+                self.__data_thread = threading.Thread(target=self.__thread_readData)  # 线程不断读取数据
+                self.__data_thread.start()  # 开启线程
                 raise StopIteration
+
+    # def __next__(self):# 返回下一批次的数据
+    #
+    #     with tf.device('/cpu:0'):# 指定设备为cpu，意味着以下操作在cpu上完成
+    #         self.train_input_size = random.choice(self.train_input_sizes) # 网络输入图像尺寸，随机选择，非固定的416X416，
+    #         self.train_output_sizes = self.train_input_size // self.strides # 网络输出图像尺寸，指定输出尺寸，可以保证权重矩阵维度一致
+    #
+    #         batch_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3))
+    #         batch_gt_image = np.zeros((self.batch_size, self.train_input_size, self.train_input_size, 3),dtype=np.float32)#绘制有ground truth的图像
+    #
+    #         batch_label_sbbox = np.zeros((self.batch_size, self.train_output_sizes[0], self.train_output_sizes[0],
+    #                                       self.anchor_per_scale, 5 + self.num_classes))
+    #         batch_label_mbbox = np.zeros((self.batch_size, self.train_output_sizes[1], self.train_output_sizes[1],
+    #                                       self.anchor_per_scale, 5 + self.num_classes))
+    #         batch_label_lbbox = np.zeros((self.batch_size, self.train_output_sizes[2], self.train_output_sizes[2],
+    #                                       self.anchor_per_scale, 5 + self.num_classes))
+    #
+    #         batch_sbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
+    #         batch_mbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
+    #         batch_lbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4))
+    #
+    #         num = 0
+    #         if self.batch_count < self.num_batchs:
+    #             while num < self.batch_size:
+    #                 index = self.batch_count * self.batch_size + num
+    #                 if index >= self.num_samples: index -= self.num_samples
+    #                 annotation = self.annotations[index]
+    #                 image, bboxes = self.parse_annotation(annotation) # 读取图像，box(位置+类别)，图像已经经过预处理、数据增强等变换
+    #                 label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
+    #
+    #                 # 在image标出true box及其类别
+    #                 _temp = np.ones(bboxes.shape[0])#作为置信度
+    #                 _bboxes = np.insert(bboxes,4,values=_temp,axis=1)#增加一列
+    #                 gt_image = utils.draw_bbox(image*255,_bboxes) #输入image类型需要为uint8类型(0-255之间),
+    #                 batch_gt_image[num, :, :, :] = gt_image/255.0 # 归一化0-1区间，类型为float32
+    #
+    #                 batch_image[num, :, :, :] = image
+    #                 batch_label_sbbox[num, :, :, :, :] = label_sbbox
+    #                 batch_label_mbbox[num, :, :, :, :] = label_mbbox
+    #                 batch_label_lbbox[num, :, :, :, :] = label_lbbox
+    #                 batch_sbboxes[num, :, :] = sbboxes
+    #                 batch_mbboxes[num, :, :] = mbboxes
+    #                 batch_lbboxes[num, :, :] = lbboxes
+    #                 num += 1
+    #             self.batch_count += 1
+    #             return batch_image, batch_label_sbbox, batch_label_mbbox, batch_label_lbbox, \
+    #                    batch_sbboxes, batch_mbboxes, batch_lbboxes,batch_gt_image
+    #         else:
+    #             self.batch_count = 0
+    #             np.random.shuffle(self.annotations)
+    #             raise StopIteration
 
     def random_horizontal_flip(self, image, bboxes):
         '''
@@ -320,15 +415,18 @@ if __name__ == '__main__':
     trainset = Dataset('train')
 
     nWaitTime = 0
-    for train_data in trainset:
-        # batch_bboxes = np.random.randint(10,50,size=(cfg.TRAIN.BATCH_SIZE,20,6)).astype(np.float)
-        # batch_bboxes[:,10:20] = -1
-        # utils.draw_batch_bbox(train_data[0],batch_bboxes)
+    for i in range(5):
+        for train_data in trainset:
+            # batch_bboxes = np.random.randint(10,50,size=(cfg.TRAIN.BATCH_SIZE,20,6)).astype(np.float)
+            # batch_bboxes[:,10:20] = -1
+            # utils.draw_batch_bbox(train_data[0],batch_bboxes)
 
-        cv2.imshow("gt_image",train_data[7][0])#仅展示1个batch中的第一幅图像
+            cv2.imshow("gt_image", train_data[7][0])  # 仅展示1个batch中的第一幅图像
 
-        key = cv2.waitKey(nWaitTime)
-        if 27 == key:  # ESC
-            break
-        elif 32 == key:  # space
-            nWaitTime = not nWaitTime
+            key = cv2.waitKey(nWaitTime)
+            if 27 == key:  # ESC
+                break
+            elif 32 == key:  # space
+                nWaitTime = not nWaitTime
+
+    trainset.stopThread()
