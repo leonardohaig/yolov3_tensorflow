@@ -322,7 +322,7 @@ def postprocess_openvino_boxes(pred_bbox,org_img_shape,input_size,score_threshol
     :param pred_bbox:
     :param org_img_shape:
     :param input_size:
-    :param score_threshold:
+    :param score_threshold:list,针对不同的目标采用不同的阈值
     :return:
     '''
 
@@ -353,9 +353,36 @@ def postprocess_openvino_boxes(pred_bbox,org_img_shape,input_size,score_threshol
     bboxes_scale = np.sqrt(np.multiply.reduce(pred_coor[:, 2:4] - pred_coor[:, 0:2], axis=-1))
     scale_mask = np.logical_and((valid_scale[0] < bboxes_scale), (bboxes_scale < valid_scale[1]))
 
-    # # (5) discard some boxes with low scores
-    score_mask = scores > score_threshold
-    mask = np.logical_and(scale_mask, score_mask)
-    coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
+    # # # (5) discard some boxes with low scores
+    # score_mask = scores > score_threshold
+    # mask = np.logical_and(scale_mask, score_mask)
+    # coors, scores, classes = pred_coor[mask], scores[mask], classes[mask]
+    # return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
 
-    return np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
+    #针对不同类别，采用不同阈值
+    coors, scores, classes = pred_coor[scale_mask], scores[scale_mask], classes[scale_mask]
+    pred_bbox = np.concatenate([coors, scores[:, np.newaxis], classes[:, np.newaxis]], axis=-1)
+
+    classes_in_img = list(set(pred_bbox[:, 5]))
+    total_num = 0
+    best_bboxes = []
+
+    for cls in classes_in_img:
+        cls = int(cls)
+        cls_mask = (pred_bbox[:, 5] == cls)
+        cls_bboxes = pred_bbox[cls_mask]
+        score_mask = cls_bboxes[:, 4] > score_threshold[cls]
+        cls_bboxes = cls_bboxes[score_mask]
+        if cls_bboxes.size:
+            best_bboxes.append(cls_bboxes)
+        total_num += cls_bboxes.shape[0]
+
+    pred_bbox = np.zeros([total_num,6])
+    idx = 0
+    for cls_bboxes in best_bboxes:
+        pred_bbox[idx:idx+cls_bboxes.shape[0]] = cls_bboxes
+        idx += cls_bboxes.shape[0]
+
+    return pred_bbox
+
+

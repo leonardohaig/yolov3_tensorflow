@@ -172,7 +172,7 @@ def main():
 
             # Parse detection results of the current request
             res = exec_net.requests[cur_request_id].outputs[out_blob] # shape[N 6]
-            bboxes = utils.postprocess_openvino_boxes(res,frame_size,input_size,0.3)
+            bboxes = utils.postprocess_openvino_boxes(res,frame_size,input_size,[0.57, 0.3])
             bboxes = utils.nms(bboxes, 0.45, method='nms')
             frame = utils.draw_bbox(frame, bboxes)
 

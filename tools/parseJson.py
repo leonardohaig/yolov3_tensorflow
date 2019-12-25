@@ -30,7 +30,7 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    if 0:#验证集
+    if 1:#验证集
         MAX_NUM_IMAGES = 2000  # 最多处理的图片数量
         imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
@@ -44,9 +44,17 @@ if __name__ == '__main__':
 
 
 
-    needed_classes_file = '../data/classes/bdd100k.names'  # 需要的类别
+    # needed_classes_file = '../data/classes/bdd100k.names'  # 需要的类别
+    # needed_classes = read_class_names(needed_classes_file)#需要的类别名称
+    needed_classes = {}
+    needed_classes[0] = 'car'
+    needed_classes[1] = 'bus'
+    needed_classes[2] = 'truck'
+    needed_classes[3] = 'motor'
+    needed_classes[4] = 'train'
 
-    needed_classes = read_class_names(needed_classes_file)#需要的类别名称
+    needed_classes[5] = 'person'
+    needed_classes[6] = 'rider'
     needed_classes = {value: key for key, value in needed_classes.items()}#key value 互换
 
     nWaitTime = 1
@@ -75,6 +83,10 @@ if __name__ == '__main__':
                     xmax = min(xmax,W-1)
                     ymax = min(ymax,H-1)
                     cls_id = needed_classes[category]
+                    if cls_id<5:
+                        cls_id = 0
+                    else:cls_id=1
+
                     w = xmax - xmin
                     h = ymax - ymin
 
