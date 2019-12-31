@@ -33,7 +33,9 @@ __C.YOLO.DEMO_WEIGHT            = './checkpoint/yolov3_coco_demo.ckpt'
 
 #Train options
 __C.TRAIN                       = edict()
+# __C.TRAIN.IMAGES_DIR            = './images' #训练集图像文件夹
 #__C.TRAIN.ANNOT_PATH            = './data/dataset/voc_train.txt'
+__C.TRAIN.IMAGES_DIR            = '/home/liheng/liheng/bdd100k/images/100k/train/' #训练集图像文件夹
 __C.TRAIN.ANNOT_PATH            = './tools/bdd100k_train.txt' # 训练集各图像及对应的标签、目标位置
 __C.TRAIN.BATCH_SIZE            = 20
 # __C.TRAIN.INPUT_SIZE            = [320,352,384,416,448,480,512,544,576,608] #训练时，输入图片尺寸。多尺度训练
@@ -49,14 +51,13 @@ __C.TRAIN.LOG_SAVE_DIR          = './data/log2/' # 训练日志保存路径,程�
 
 #Test options
 __C.TEST                        = edict()
+# __C.TEST.IMAGES_DIR            = './images' #验证集图像文件夹
 #__C.TEST.ANNOT_PATH             = './data/dataset/voc_test.txt'
+__C.TEST.IMAGES_DIR            = '/home/liheng/liheng/bdd100k/images/100k/val/' #验证集图像文件夹
 __C.TEST.ANNOT_PATH             = './tools/bdd100k_val.txt' # 验证集各图像及对应的标签、目标位置
 __C.TEST.BATCH_SIZE             = 8
 __C.TEST.INPUT_SIZE             = 416
 __C.TEST.DATA_AUG               = False # 是否进行数据增强（对原始图像进行裁剪、平移等变换）
-__C.TEST.WRITE_IMAGE            = True
-__C.TEST.WRITE_IMAGE_PATH       = './data/detection/'
-__C.TEST.WRITE_IMAGE_SHOW_LABEL = False
 __C.TEST.WEIGHT_FILE            = './checkpoint/yolov3_test_loss=9.2099.ckpt-5'
 __C.TEST.SHOW_LABEL             = True
 __C.TEST.SCORE_THRESHOLD        = 0.2

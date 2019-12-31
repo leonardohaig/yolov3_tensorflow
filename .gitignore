@@ -113,4 +113,6 @@ data/log2/
 data/log3/
 tools/bdd100k_train.txt
 tools/bdd100k_val.txt
+tools/new_bdd100k_train.txt
+tools/new_bdd100k_val.txt
 *.pb

@@ -39,6 +39,7 @@ class Dataset(object):
 
         :param dataset_type:
         '''
+        self.images_dir = cfg.TRAIN.IMAGES_DIR if dataset_type == 'train' else cfg.TEST.IMAGES_DIR
         self.annot_path  = cfg.TRAIN.ANNOT_PATH if dataset_type == 'train' else cfg.TEST.ANNOT_PATH
         self.input_sizes = cfg.TRAIN.INPUT_SIZE if dataset_type == 'train' else cfg.TEST.INPUT_SIZE
         self.batch_size  = cfg.TRAIN.BATCH_SIZE if dataset_type == 'train' else cfg.TEST.BATCH_SIZE
@@ -94,6 +95,7 @@ class Dataset(object):
         with open(self.annot_path, 'r') as f:
             txt = f.readlines()
             annotations = [line.strip() for line in txt if len(line.strip().split()[1:]) != 0]
+            annotations = [os.path.join(self.images_dir, line) for line in annotations]
         np.random.shuffle(annotations)
         return annotations
 
