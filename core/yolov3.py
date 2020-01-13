@@ -20,7 +20,7 @@ import tensorflow as tf
 import core.utils as utils
 import core.common as common
 # import core.backbone as backbone
-import core.MobilenetV2 as backbone
+import core.yolo_nano as backbone
 from core.config import cfg
 from evaluator import *
 
@@ -94,72 +94,34 @@ class YOLOV3(object):
         :return:
         '''
 
-        # 输入层进入 Darknet-53 网络后，得到了三个分支
-        route_1, route_2, input_data = backbone.MobilenetV2(input_data, self.trainable)  # 输出的尺度为52,26,13
-        # route_1.shape=(?,52,52,32)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
-        # route_2.shape=(?,26,26,96)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
-        # route_3.shape=(?,13,13,1280)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
-        # ?具体大小与该批次输入的图片数量有关
+        # route_1.shape=(?,52,52,150)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
+        # route_2.shape=(?,26,26,325)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
+        # route_3.shape=(?,13,13,189)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
+        route_1, route_2, input_data = backbone.yolo_nano(input_data, self.trainable)
 
-        # ====predict one=======#
-        # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv52')
-        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv53')
-        input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv54')
-        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv55')
-        input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
+        conv_lobj_branch = common.EP(input_data, 189, 462, name='EP5', stride=1,trainable=self.trainable)
+        conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 462, 3 * (self.num_class + 5)),
+                                          trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)#(?,13,13,3*(cls+5))
 
-        # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255],255=3*(80+5)
-        conv_lobj_branch = common.separable_conv(input_data, output_c=1024, training=self.trainable,
-                                                 name='conv_lobj_branch')
-        conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
-                                          trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
-
-        # 上采样
-        # 这里的 upsample 使用的是最近邻插值方法，这样的好处在于上采样过程不需要学习，从而减少了网络参数
-        input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv57')
+        input_data = common.convolutional(input_data, (1, 1, 189, 105), self.trainable, 'conv5')
         input_data = common.upsample(input_data, name='upsample0', method=self.upsample_method)
+        input_data = tf.concat([input_data, route_2], axis=-1)
+        input_data = common.PEP(input_data, 430, 325, 113, name='PEP17', stride=1,trainable=self.trainable)
+        input_data = common.PEP(input_data, 325, 207, 99, name='PEP18', stride=1,trainable=self.trainable)
+        input_data = common.convolutional(input_data, (1, 1, 207, 98), self.trainable, 'conv6')
 
-        # 连接
-        with tf.variable_scope('route_1'):
-            input_data = tf.concat([input_data, route_2],
-                                   axis=-1)  # input_data.shape(?,26,26,352),352=256(input_data)+96(route_2),第4维的拼接
-
-        # ====predict two=======#
-        # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 96 + 256, 256), self.trainable, 'conv58')
-        input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv59')
-        input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv60')
-        input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv61')
-        input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv62')
-
-        # conv_mbbox 用于预测中等尺寸物体，shape = [None, 26, 26, 255]
-        conv_mobj_branch = common.separable_conv(input_data, output_c=512, training=self.trainable,
-                                                 name='conv_mobj_branch')
-        conv_mbbox = common.convolutional(conv_mobj_branch, (1, 1, 512, 3 * (self.num_class + 5)),
+        conv_mobj_branch = common.EP(input_data, 98, 183, name='EP6', stride=1,trainable=self.trainable)
+        conv_mbbox = common.convolutional(conv_mobj_branch, (1, 1, 183, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_mbbox', activate=False, bn=False)
 
-        input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv63')
+        input_data = common.convolutional(input_data, (1, 1, 98, 47), self.trainable, 'conv7')
         input_data = common.upsample(input_data, name='upsample1', method=self.upsample_method)
-
-        with tf.variable_scope('route_2'):
-            input_data = tf.concat([input_data, route_1],
-                                   axis=-1)  # input_data.shape(?,52,52,160),160=128(input_data)+32(route_1),第4维的拼接
-
-        # ====predict three=======#
-        # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 32 + 128, 128), self.trainable, 'conv64')
-        input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name='conv65')
-        input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv66')
-        input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name='conv67')
-        input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv68')
-
-        # conv_sbbox 用于预测小尺寸物体，shape = [None, 52, 52, 255]
-        conv_sobj_branch = common.separable_conv(input_data, output_c=256, training=self.trainable,
-                                                 name='conv_sobj_branch')
-        conv_sbbox = common.convolutional(conv_sobj_branch, (1, 1, 256, 3 * (self.num_class + 5)),
+        input_data = tf.concat([input_data, route_1], axis=-1)
+        input_data = common.PEP(input_data, 197, 122, 58, name='PEP19', stride=1,trainable=self.trainable)
+        input_data = common.PEP(input_data, 122, 87, 52, name='PEP20', stride=1,trainable=self.trainable)
+        conv_sobj_branch = common.PEP(input_data, 87, 93, 47, name='PEP21', stride=1,trainable=self.trainable)
+        conv_sbbox = common.convolutional(conv_sobj_branch, (1, 1, 93, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_sbbox', activate=False, bn=False)
-
         return conv_lbbox, conv_mbbox, conv_sbbox
 
     def decode(self, conv_output, anchors, stride):
@@ -685,5 +647,5 @@ if __name__ == '__main__':
     params = evaluate_params(graph)
     print('flops:', flops)
     print('params:', params)
-
-    stats_graph(graph)
+    exit(0)
+    # stats_graph(graph)
