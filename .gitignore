@@ -116,3 +116,8 @@ tools/bdd100k_val.txt
 tools/new_bdd100k_train.txt
 tools/new_bdd100k_val.txt
 *.pb
+tools/widerPersonTest.txt
+tools/widerPersontrain.txt
+tools/yoloTest.txt
+tools/yoloTrain.txt
+tools/widerPersontrain1.txt

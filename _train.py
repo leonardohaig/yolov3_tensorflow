@@ -307,7 +307,7 @@ class YoloTrain(object):
         self.steps_per_period = len(self.trainset)
         self.config = tf.ConfigProto(allow_soft_placement=True)
         # self.config.gpu_options.allow_growth = True
-        self.config.gpu_options.per_process_gpu_memory_fraction = 0.8  # 占用80%显存
+        # self.config.gpu_options.per_process_gpu_memory_fraction = 0.8  # 占用80%显存
         self.sess = tf.Session(config=self.config)
         self.ckpt_savePath = cfg.TRAIN.MODEL_SAVE_DIR # ckpt文件保存路径
         if not os.path.exists(self.ckpt_savePath):  # 模型保存路径不存在，则创建该路径
@@ -340,17 +340,25 @@ class YoloTrain(object):
 
         with tf.name_scope('learn_rate'):
             self.global_step = tf.Variable(1.0, dtype=tf.float64, trainable=False, name='global_step')
-            warmup_steps = tf.constant(self.warmup_periods * self.steps_per_period,
-                                       dtype=tf.float64, name='warmup_steps')
-            train_steps = tf.constant((self.first_stage_epochs + self.second_stage_epochs) * self.steps_per_period,
-                                      dtype=tf.float64, name='train_steps')
-            self.learn_rate = tf.cond(
-                pred=self.global_step < warmup_steps,
-                true_fn=lambda: self.global_step / warmup_steps * self.learn_rate_init,
-                false_fn=lambda: self.learn_rate_end + 0.5 * (self.learn_rate_init - self.learn_rate_end) *
-                                 (1 + tf.cos(
-                                     (self.global_step - warmup_steps) / (train_steps - warmup_steps) * np.pi))
-            )
+            # warmup_steps = tf.constant(self.warmup_periods * self.steps_per_period,
+            #                            dtype=tf.float64, name='warmup_steps')
+            # train_steps = tf.constant((self.first_stage_epochs + self.second_stage_epochs) * self.steps_per_period,
+            #                           dtype=tf.float64, name='train_steps')
+            # self.learn_rate = tf.cond(
+            #     pred=self.global_step < warmup_steps,
+            #     true_fn=lambda: self.global_step / warmup_steps * self.learn_rate_init,
+            #     false_fn=lambda: self.learn_rate_end + 0.5 * (self.learn_rate_init - self.learn_rate_end) *
+            #                      (1 + tf.cos(
+            #                          (self.global_step - warmup_steps) / (train_steps - warmup_steps) * np.pi))
+            # )
+
+            # 学习率多项式衰减
+            self.learn_rate = tf.train.polynomial_decay(learning_rate=self.learn_rate_init,
+                                                        global_step=self.global_step,
+                                                        decay_steps=500,
+                                                        end_learning_rate=self.learn_rate_end,
+                                                        power=0.5, cycle=True)
+
             global_step_update = tf.assign_add(self.global_step, 1.0)
 
         with tf.name_scope("define_weight_decay"):

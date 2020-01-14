@@ -41,7 +41,7 @@ def build_argparser():
                       required=False, type=str, default='/home/liheng/demo_ckpt/FP16/yolov3_bdd100k.xml')
     args.add_argument("-i", "--input",
                       help="Required. Path to video file or image. 'cam' for capturing video stream from camera",
-                      required=False, type=str,default='/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-153700.mp4')
+                      required=False, type=str,default='/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-154337.mp4')
     args.add_argument("-l", "--cpu_extension",
                       help="Optional. Required for CPU custom layers. Absolute path to a shared library with the "
                            "kernels implementations.", type=str,
@@ -191,7 +191,7 @@ def main():
             cv2.putText(frame, render_time_message, (15, 30), cv2.FONT_HERSHEY_COMPLEX, 0.5, (10, 10, 200), 1)
             cv2.putText(frame, async_mode_message, (10, int(initial_h - 20)), cv2.FONT_HERSHEY_COMPLEX, 0.5,
                         (10, 10, 200), 1)
-            cv2.putText(frame, info, (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (10, 10, 200), 1, lineType=cv2.LINE_AA)
+            cv2.putText(frame, info, (15, 50), cv2.FONT_HERSHEY_COMPLEX, 0.5, (10, 10, 200), 1)
 
         #
         render_start = time.time()

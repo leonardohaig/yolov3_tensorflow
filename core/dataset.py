@@ -46,12 +46,13 @@ class Dataset(object):
 
         :param dataset_type:
         '''
-        self.images_dir  = cfg.TRAIN.IMAGES_DIR if dataset_type == 'train' else cfg.TEST.IMAGES_DIR
+        self.images_dir = cfg.TRAIN.IMAGES_DIR if dataset_type == 'train' else cfg.TEST.IMAGES_DIR
         self.annot_path  = cfg.TRAIN.ANNOT_PATH if dataset_type == 'train' else cfg.TEST.ANNOT_PATH
         self.input_sizes = cfg.TRAIN.INPUT_SIZE if dataset_type == 'train' else cfg.TEST.INPUT_SIZE
         self.batch_size  = cfg.TRAIN.BATCH_SIZE if dataset_type == 'train' else cfg.TEST.BATCH_SIZE
         self.data_aug    = cfg.TRAIN.DATA_AUG   if dataset_type == 'train' else cfg.TEST.DATA_AUG
 
+        # self.annot_path = 'tools/widerPersontrain1.txt'
         self.train_input_sizes = cfg.TRAIN.INPUT_SIZE
         self.strides = np.array(cfg.YOLO.STRIDES)
         self.classes = utils.read_class_names(cfg.YOLO.CLASSES) # dict类型，ID--name
@@ -80,7 +81,7 @@ class Dataset(object):
         with open(self.annot_path, 'r') as f:
             txt = f.readlines()
             annotations = [line.strip() for line in txt if len(line.strip().split()[1:]) != 0]
-            annotations = [os.path.join(self.images_dir,line) for line in annotations]
+            # annotations = [os.path.join(self.images_dir, line) for line in annotations]
         np.random.shuffle(annotations)
         return annotations
 
@@ -130,8 +131,16 @@ class Dataset(object):
                     if index >= self.num_samples: index -= self.num_samples
                     annotation = self.annotations[index]
                     image, bboxes = self.parse_annotation(annotation,train_input_size)  # 读取图像，box(位置+类别)，图像已经经过预处理、数据增强等变换
-                    label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(
-                        bboxes,train_output_sizes)
+
+                    try:
+                        label_sbbox, label_mbbox, label_lbbox, \
+                        sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes, train_output_sizes)
+                    except Exception as e:
+                        print('parse annotation {} error occured !'.format(annotation))
+                        continue
+
+
+
 
                     # 在image标出true box及其类别
                     _temp = np.ones(bboxes.shape[0])  # 作为置信度
@@ -398,6 +407,16 @@ class Dataset(object):
 
         :param bboxes:
         :return:
+        label_sbbox: shape为(input_size / 8, input_size / 8, anchor_per_scale, 5 + num_classes)
+        label_mbbox: shape为(input_size / 16, input_size / 16, anchor_per_scale, 5 + num_classes)
+        label_lbbox: shape为(input_size / 32, input_size / 32, anchor_per_scale, 5 + num_classes)
+        只有best anchor对应位置的数据才为(x, y, w, h, 1, classes);
+        其他非best anchor对应位置的数据都为(0, 0, 0, 0, 0, 0...)
+        sbboxes：shape为(max_bbox_per_scale, 4)
+        mbboxes：shape为(max_bbox_per_scale, 4)
+        lbboxes：shape为(max_bbox_per_scale, 4)
+        存储的坐标为(x, y, w, h)，(x, y, w, h)的大小都是bbox纠正后的原始大小
+        bboxes用于计算相应detector的预测框与该detector负责预测的所有bbox的IOU
         '''
         label = [np.zeros((train_output_sizes[i], train_output_sizes[i], self.anchor_per_scale,
                            5 + self.num_classes)) for i in range(3)]
@@ -424,6 +443,7 @@ class Dataset(object):
             iou = []
             exist_positive = False
             for i in range(3): # 3种网络尺寸
+                # anchors_xywh值为映射到feature map后的值
                 anchors_xywh = np.zeros((self.anchor_per_scale, 4))#每个尺度下每个点预测3个anchor box，4表示中心位置和宽高
                 anchors_xywh[:, 0:2] = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32) + 0.5# 中心点坐标，来源于ground truth 的在3个feature map上的映射
                 anchors_xywh[:, 2:4] = self.anchors[i] #宽高来源于预设的anchor在feature map上的映射
@@ -433,9 +453,12 @@ class Dataset(object):
                 iou_mask = iou_scale > 0.3 # 判断其和真实的box的iou是否>0.3
 
                 if np.any(iou_mask):# 针对 iou > 0.3 的 anchor 框进行处理.一个物体可能同时在多个feature map上匹配到，以及被一个feature map上的多个anchor匹配到
+                            # 所以不能在循环完毕后找最大的iou
                     xind, yind = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32)# 中心点坐标 #根据真实框的坐标信息来计算所属网格左上角的位置
 
-                    label[i][yind, xind, iou_mask, :] = 0 # 将无关的feature map上置0，iou_mask中值为False的label对应列为0，
+                    # 首先需要将该Anchor对应的标签清零，因为某个Anchor可能与多个bbox的IOU大于0.3
+                    # 如果不清零，那么该Anchor可能会被标记为多类
+                    label[i][yind, xind, iou_mask, :] = 0
                     # 填充真实框的中心位置和宽高
                     label[i][yind, xind, iou_mask, 0:4] = bbox_xywh # TODO：此处应是bbox_xywh_scaled[i]吧? 经过查看后面计算损失函数部分，应该是直接利用坐标值，而非缩放、归一化后的坐标值
                     label[i][yind, xind, iou_mask, 4:5] = 1.0 # 设定置信度为 1.0，表明该网格包含物体
@@ -448,15 +471,26 @@ class Dataset(object):
                     exist_positive = True
 
             if not exist_positive:
+                # find the best possible anchor to fit
                 best_anchor_ind = np.argmax(np.array(iou).reshape(-1), axis=-1)
+                #small medium large
                 best_detect = int(best_anchor_ind / self.anchor_per_scale)
+                #0 1 2
                 best_anchor = int(best_anchor_ind % self.anchor_per_scale)
                 xind, yind = np.floor(bbox_xywh_scaled[best_detect, 0:2]).astype(np.int32)
 
+                #边框超出范围，
+                # if xind>= label[best_detect].shape[1]:
+                #     xind = label[best_detect].shape[1] -1
+                # if yind >= label[best_detect].shape[0]:
+                #     yind = label[best_detect].shape[0]-1
+
+                # 首先需要将该Anchor对应的标签清零，因为某个Anchor可能与多个bbox的IOU大于0.3
+                # 如果不清零，那么该Anchor可能会被标记为多类
                 label[best_detect][yind, xind, best_anchor, :] = 0
                 label[best_detect][yind, xind, best_anchor, 0:4] = bbox_xywh
-                label[best_detect][yind, xind, best_anchor, 4:5] = 1.0
-                label[best_detect][yind, xind, best_anchor, 5:] = smooth_onehot
+                label[best_detect][yind, xind, best_anchor, 4:5] = 1.0# 设定置信度为 1.0，表明该网格包含物体
+                label[best_detect][yind, xind, best_anchor, 5:] = smooth_onehot#平滑处理,具体为某个物体的概率
 
                 bbox_ind = int(bbox_count[best_detect] % self.max_bbox_per_scale)
                 bboxes_xywh[best_detect][bbox_ind, :4] = bbox_xywh

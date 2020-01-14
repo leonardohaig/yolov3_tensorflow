@@ -30,14 +30,14 @@ def read_class_names(class_file_name):
 
 
 if __name__ == '__main__':
-    if 1:#验证集
+    if 0:#验证集
         MAX_NUM_IMAGES = 2000  # 最多处理的图片数量
-        # imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
+        imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/val/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_val.json"
         yolo_format_saved_path = './bdd100k_val.txt'  # 导出文件保存路径
     else:#训练集
-        MAX_NUM_IMAGES = 10000  # 最多处理的图片数量
-        # imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
+        MAX_NUM_IMAGES = 10000000  # 最多处理的图片数量
+        imgRootPath = "/home/liheng/liheng/bdd100k/images/100k/train/"
         labelPath = "/home/liheng/liheng/bdd100k/labels/bdd100k_labels_images_train.json"
         yolo_format_saved_path = './bdd100k_train.txt'  # 导出文件保存路径
 
@@ -66,7 +66,7 @@ if __name__ == '__main__':
         for line in tqdm(lines[:MAX_NUM_IMAGES]):
             name = line['name']
             labels = line['labels']
-            imgPath = name
+            imgPath = os.path.join(imgRootPath,name)
             if not os.path.isfile(imgPath):
                 continue
 

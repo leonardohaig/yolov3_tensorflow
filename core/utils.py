@@ -83,7 +83,7 @@ def image_preprocess(image,target_size,gt_boxes=None):
 
 
 
-def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label=True):
+def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label=True,use_mask=False):
     '''
     将检测出的目标在图像上用矩形框画出，同时标出其标签及置信度
     :param image:需要绘制结果的图像,uint8类型
@@ -102,6 +102,8 @@ def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label
     random.shuffle(colors)
     random.seed(None)
 
+    if use_mask:
+        ori_image = image.copy()
     for i,bbox in enumerate(bboxes):
         coor = np.array(bbox[:4],dtype=np.int32)#[xmin,ymin,xmax,ymax]
         fontScale = 0.5
@@ -110,19 +112,25 @@ def draw_bbox(image,bboxes,classes=read_class_names(cfg.YOLO.CLASSES),show_label
         if class_ind == -1:
             continue
         bbox_color = colors[class_ind]
-        bbox_thick = int(0.6*(image_h+image_w)/600)
+        if use_mask:bbox_thick = -1
+        else:bbox_thick = int(0.6*(image_h+image_w)/600)
+
         c1,c2 = (coor[0],coor[1]),(coor[2],coor[3])#矩形框的左上和右下顶点
         cv2.rectangle(image,c1,c2,bbox_color,bbox_thick)
 
-        if show_label:
+        if show_label and not use_mask:
+            bbox_thick = int(0.6 * (image_h + image_w) / 600)
             bbox_mess = '%s: %.2f'%(classes[class_ind],score)
             textSize = cv2.getTextSize(bbox_mess,0,fontScale,thickness=bbox_thick//2)[0]
 
-            cv2.rectangle(image,c1,(c1[0]+textSize[0],c1[1]-textSize[1]-3),bbox_color,-1)#fill the label rectangle
+            cv2.rectangle(image,(c1[0]-1,c1[1]),(c1[0]+textSize[0],c1[1]-textSize[1]-3),bbox_color,-1)#fill the label rectangle
 
             cv2.putText(image,bbox_mess,(c1[0],c1[1]-2),cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale,(0,0,0),bbox_thick//2,lineType=cv2.LINE_AA)
 
+
+    if use_mask:
+        image = cv2.addWeighted(ori_image,0.65,image,0.35,0)
     return image
 
 

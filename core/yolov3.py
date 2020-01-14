@@ -347,7 +347,7 @@ class YOLOV3(object):
         :param conv:网络计算得到的结果
         :param pred:对conv进行decode得到的结果
         :param label:真实值？和pred.shape一致(batch_size,feature_map_size,feature_map_size,3,5+num_class)
-        :param bboxes:真实值？shape(batch_size,?/150,4)150表示最多检测150个目标，
+        :param bboxes:真实值？shape(batch_size,?or150,4)150表示最多检测150个目标，
                         4表示边框的坐标信息,注意其和label的区别，lable可以理解为将真实值转换为网络输出的形式进行表示
         :param anchors:
         :param stride:
@@ -360,27 +360,60 @@ class YOLOV3(object):
         input_size = stride * output_size  # 该值和图像大小一致，非原始图像大小，而是dataset.py中随机选择的图像大小
         conv = tf.reshape(conv, (batch_size, output_size, output_size,
                                  self.anchor_per_scale, 5 + self.num_class))
+        conv_raw_dxdy = conv[:, :, :, :, 0:2]
+        conv_raw_dwdh = conv[:, :, :, :, 2:4]
         conv_raw_conf = conv[:, :, :, :, 4:5]
         conv_raw_prob = conv[:, :, :, :, 5:]
 
         pred_xywh = pred[:, :, :, :, 0:4]
         pred_conf = pred[:, :, :, :, 4:5]
 
+        label_xy = label[:, :, :, :, 0:2]
+        label_wh = label[:, :, :, :, 2:4]
         label_xywh = label[:, :, :, :, 0:4]
         respond_bbox = label[:, :, :, :, 4:5]  # 置信度，判断网格内有无物体，
                                             # respond_bbox 的意思是如果网格单元中包含物体，
                                             # 那么就会计算边界框损失
         label_prob = label[:, :, :, :, 5:]
 
-        # giou = tf.expand_dims(self.bbox_giou(pred_xywh, label_xywh), axis=-1)
-        giou = tf.expand_dims(self.bbox_diou(pred_xywh, label_xywh), axis=-1) # 修改为diou
         input_size = tf.cast(input_size, tf.float32)
 
+
+        # # 坐标损失
+        # y = tf.tile(tf.range(output_size, dtype=tf.int32)[:, tf.newaxis], [1, output_size])
+        # x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])
+        # xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
+        # xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, self.anchor_per_scale, 1])
+        # xy_grid = tf.cast(xy_grid, tf.float32)
+        #
+        # label_txty = 1.0 * label_xy / stride - xy_grid
+        # label_raw_twth = tf.log((1.0 * label_wh / stride) / anchors)
+        # label_raw_twth = tf.where(tf.is_inf(label_raw_twth), tf.zeros_like(label_raw_twth), label_raw_twth)
+        #
+        # # this is a scaling method to strengthen the influence of small bbox's giou
+        # # basically if the bbox is small, then this scale is greater (2 - box_area/total_area)
+        # bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
+        # xy_loss = respond_bbox * bbox_loss_scale * \
+        #           tf.nn.sigmoid_cross_entropy_with_logits(labels=label_txty, logits=conv_raw_dxdy)
+        # wh_loss = 0.5 * respond_bbox * bbox_loss_scale * tf.square(label_raw_twth - conv_raw_dwdh)  #
+        #
+        # giou_loss = xy_loss + wh_loss
+
+
+        # giou = tf.expand_dims(self.bbox_giou(pred_xywh, label_xywh), axis=-1)
+        giou = tf.expand_dims(self.bbox_diou(pred_xywh, label_xywh), axis=-1) # 修改为diou
+
         # GIou loss
+        # this is a scaling method to strengthen the influence of small bbox's giou
+        # basically if the bbox is small, then this scale is greater (2 - box_area/total_area)
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
         giou_loss = respond_bbox * bbox_loss_scale * (1 - giou) #两个边界框之间的 GIoU 值越大，
                                                              # giou 的损失值就会越小, 因此网络会朝着
                                                                 # 预测框与真实框重叠度较高的方向去优化
+
+
+
+
 
         # 找出与真实框 iou 值最大的预测框
         iou = self.bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
@@ -389,13 +422,14 @@ class YOLOV3(object):
         # 如果最大的 iou 小于阈值，那么认为该预测框不包含物体,则为背景框
         respond_bgd = (1.0 - respond_bbox) * tf.cast(max_iou < self.iou_loss_thresh, tf.float32)
 
-        # 置信度损失
+        # 置信度损失，判断预测框有无物体
+        # 让模型去学习分辨图片的背景和前景区域
         conf_focal = self.focal(respond_bbox, pred_conf)
         # 计算置信度的损失（我们希望假如该网格中包含物体，那么网络输出的预测框置信度为 1，无物体时则为 0
         conf_loss = conf_focal * (
-                respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
+                respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf) #有目标的损失
                 +
-                respond_bgd * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
+                respond_bgd * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf) #无目标而预测有目标的损失
         )
         
         # 分类损失
@@ -412,10 +446,10 @@ class YOLOV3(object):
 
         :param label_sbbox:
         :param label_mbbox:
-        :param label_lbbox:
+        :param label_lbbox:[B,feature_map_size,feature_map_size,anchor_per_scale,5+num_cls]
         :param true_sbbox:
         :param true_mbbox:
-        :param true_lbbox:
+        :param true_lbbox:[B,max_bbox_per_scale,4];4:x,y,w,h
         :return:
         '''
 

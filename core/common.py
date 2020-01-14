@@ -44,7 +44,30 @@ def batch_normalization(input_data, training, decay=0.9):
         mean, variance = tf.cond(training, mean_and_var_update, lambda: (moving_mean, moving_variance))
         return tf.nn.batch_normalization(input_data, mean, variance, beta, gamma, 1e-05)
 
-
+def group_normalization(input_data, input_c, num_group=32, eps=1e-5):
+    """
+    :param input_data: format is 'NHWC'，C必须是num_group的整数倍
+    :param input_c: channel of input_data
+    :return: GN后的数据
+    """
+    with tf.variable_scope('GroupNorm'):
+        input_shape = tf.shape(input_data)
+        N = input_shape[0]
+        H = input_shape[1]
+        W = input_shape[2]
+        C = input_c
+        assert (C % num_group) == 0
+        input_data = tf.reshape(input_data, (N, H, W, num_group, C // num_group))
+        axes = (1, 2, 4)
+        mean = tf.reduce_mean(input_data, axis=axes, keep_dims=True)
+        std = tf.sqrt(tf.reduce_mean(tf.pow(input_data - mean, 2), axis=axes, keep_dims=True) + eps)
+        input_data = 1.0 * (input_data - mean) / std
+        input_data = tf.reshape(input_data, (N, H, W, C))
+        gamma = tf.get_variable(name='gamma', shape=C, dtype=tf.float32,
+                                initializer=tf.ones_initializer, trainable=True)
+        beta = tf.get_variable(name='beta', shape=C, dtype=tf.float32,
+                               initializer=tf.zeros_initializer, trainable=True)
+    return gamma * input_data + beta
 
 def convolutional(input_data, filters_shape,
                   trainable,name,
