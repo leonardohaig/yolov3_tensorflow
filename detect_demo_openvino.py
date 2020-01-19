@@ -38,7 +38,7 @@ def build_argparser():
     args = parser.add_argument_group('Options')
     args.add_argument('-h', '--help', action='help', default=SUPPRESS, help='Show this help message and exit.')
     args.add_argument("-m", "--model", help="Required. Path to an .xml file with a trained model.",
-                      required=False, type=str, default='/home/liheng/demo_ckpt/FP16/yolov3_bdd100k.xml')
+                      required=False, type=str, default='/home/liheng/demo_ckpt/FP16/yolov3_my_bdd100k.xml')
     args.add_argument("-i", "--input",
                       help="Required. Path to video file or image. 'cam' for capturing video stream from camera",
                       required=False, type=str,default='/home/liheng/ADAS_Video/1105/ADAS_Video-20191105-154337.mp4')

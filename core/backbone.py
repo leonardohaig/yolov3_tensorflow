@@ -3,66 +3,114 @@
 
 #============================#
 #Program:backbone.py
-#       实现darknet 53层卷积网络
-#Date:2019.05.20
+#       骨干网络架构
+#Date:2020.1.15
 #Author:liheng
 #Version:V1.0
-#Reference:https://github.com/YunYang1994/tensorflow-yolov3/blob/master/core/common.py
 #============================#
 
 __author__ = 'liheng'
 
 import core.common as common
 import tensorflow as tf
+from evaluator import *
 
-def darknet53(input_data,trainable):
+def backbone(input_data,training):
     '''
-    53层卷积网络
     :param input_dat:
     :param trainable:
     :return:
     '''
 
-    with tf.variable_scope('darknet'):
-        input_data = common.convolutional(input_data,filters_shape=(3,3,3,32),#3X3卷积，3通道，32个卷积核
-                                         trainable=trainable,name='conv0')
-        input_data = common.convolutional(input_data,filters_shape=(3,3,32,64),#输入数据厚度为32，输出厚度为64
-                                          trainable=trainable,name='conv1',downsample=True)#第1次下采样
 
-        for i in range(1):
-            input_data = common.residual_block(input_data,64,32,64,trainable=trainable,
-                                               name='residual%d'%(i+0))#输出厚度为64
+    with tf.variable_scope('backbone'):
+        """
+        32
+        64
+        96
+        128
+        160
+        192
+        224
+        256
+        """
 
-        input_data = common.convolutional(input_data,filters_shape=(3,3,64,128),
-                                          trainable=trainable,name='conv4',downsample=True)#第2次下采样
+        # 假设输入input_data.shape:(?,416,416,3)
+        conv = common.convolutional(input_data, filters_shape=(3, 3, 3, 32),
+                                    trainable=training, name='Conv',
+                                    downsample=True, activate=True,
+                                    bn=True)  # 第一次下采样,输出shape(?,208,208,32)
 
-        for i in range(2):
-            input_data = common.residual_block(input_data,128,64,128,trainable=trainable,
-                                               name='residual%d'%(i+1))#输出厚度为128
+        conv = common.inverted_residual(input_data=conv, input_c=32, output_c=16,
+                                        training=training, name='expanded_conv', t=1)  # shape:(?,208,208,16)
 
-        input_data = common.convolutional(input_data, filters_shape=(3, 3, 128, 256),
-                                          trainable=trainable, name='conv9', downsample=True)#第3次下采样
+        conv = common.inverted_residual(name='expanded_conv_1', input_data=conv,
+                                        input_c=16, output_c=24, downsample=True,
+                                        training=training)  # 第二次下采样,shape:(?,104,104,24)
+        conv = common.inverted_residual(name='expanded_conv_2', input_data=conv,
+                                        input_c=24, output_c=24, training=training)  # shape:(?,104,104,24)
 
-        for i in range(8):
-            input_data = common.residual_block(input_data,256,128,256,trainable=trainable,
-                                               name='residual%d'%(i+3))#输出厚度为256
+        conv = common.inverted_residual(name='expanded_conv_3', input_data=conv,
+                                        input_c=24, output_c=32, downsample=True,
+                                        training=training)  # 第三次下采样,shape:(?,52,52,32)
+        conv = common.inverted_residual(name='expanded_conv_4', input_data=conv,
+                                        input_c=32, output_c=32, training=training)  # shape:(?,52,52,32)
+        conv = common.inverted_residual(name='expanded_conv_5', input_data=conv,
+                                                 input_c=32, output_c=32,
+                                                 training=training)  # shape:(?,52,52,32)
+        feature_map_s = common.convolutional(name='Conv_S', input_data=conv, filters_shape=(1, 1, 32, 128),
+                                             trainable=training, activate=True, bn=True)  # shape:(?,13,13,1280)
 
-        route_1 = input_data #52X52 52来源：输入数据大小为416X416，至此，经过了3次下采样，每下采样一次，大小缩小一半，故3次下采样后，大小为416/(2^3)=52
-        input_data = common.convolutional(input_data,filters_shape=(3,3,256,512),
-                                          trainable=trainable,name='conv26',downsample=True)#第4次下采样
+        conv = common.inverted_residual(name='expanded_conv_6', input_data=feature_map_s, input_c=32, output_c=64,
+                                        downsample=True, training=training)  # 第四次下采样，shape:(?,26,26,64)
+        conv = common.inverted_residual(name='expanded_conv_7', input_data=conv,
+                                        input_c=64, output_c=64, training=training)  # shape:(?,26,26,64)
+        conv = common.inverted_residual(name='expanded_conv_8', input_data=conv,
+                                        input_c=64, output_c=64, training=training)  # shape:(?,26,26,64)
+        conv = common.inverted_residual(name='expanded_conv_9', input_data=conv,
+                                        input_c=64, output_c=64, training=training)  # shape:(?,26,26,64)
 
-        for i in range(8):
-            input_data = common.residual_block(input_data,512,256,512,trainable=trainable,
-                                               name='residual%d'%(i+11))#输出厚度为512
+        conv = common.inverted_residual(name='expanded_conv_10', input_data=conv,
+                                        input_c=64, output_c=96, training=training)  # shape:(?,26,26,96)
+        conv = common.inverted_residual(name='expanded_conv_11', input_data=conv,
+                                        input_c=96, output_c=96, training=training)  # shape:(?,26,26,96)
+        conv = common.inverted_residual(name='expanded_conv_12', input_data=conv,
+                                                 input_c=96, output_c=96, training=training)  # shape:(?,26,26,96)
+        feature_map_m = common.convolutional(name='Conv_M', input_data=conv, filters_shape=(1, 1, 96, 256),
+                                             trainable=training, activate=True, bn=True)  # shape:(?,13,13,1280)
 
-        route_2 = input_data #26X26
-        input_data = common.convolutional(input_data,filters_shape=(3,3,512,1024),
-                                          trainable=trainable,name='conv43',downsample=True)#第5次下采样,该次下采样之后，input_data.shape=(?,13,13,1024).?与批次输入的图片数量有关
+        conv = common.inverted_residual(name='expanded_conv_13', input_data=feature_map_m,
+                                        input_c=96, output_c=160, downsample=True,
+                                        training=training)  # 第五次下采样，shape:(?,13,13,160)
+        conv = common.inverted_residual(name='expanded_conv_14', input_data=conv,
+                                        input_c=160, output_c=160, training=training)  # shape:(?,13,13,160)
+        conv = common.inverted_residual(name='expanded_conv_15', input_data=conv,
+                                        input_c=160, output_c=160, training=training)  # shape:(?,13,13,160)
 
-        for i in range(4):
-            input_data = common.residual_block(input_data,1024,512,1024,trainable=trainable,
-                                               name='residual%d'%(i+19))
-        #input_data:13X13
+        conv = common.inverted_residual(name='expanded_conv_16', input_data=conv,
+                                        input_c=160, output_c=320, training=training)  # shape:(?,13,13,320)
 
-        return route_1,route_2,input_data
+        feature_map_l = common.convolutional(name='Conv_1', input_data=conv, filters_shape=(1, 1, 320, 1280),
+                                             trainable=training, activate=True, bn=True)  # shape:(?,13,13,1280)
+
+        # 在darknet中，输出shap为：
+        # route_1.shape=(?,52,52,256)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
+        # route_2.shape=(?,26,26,512)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
+        # route_3.shape=(?,13,13,1024)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
+
+        # shape:(?,52,52,128)  (?,26,26,256)  shape:(?,13,13,1280)
+    return feature_map_s, feature_map_m, feature_map_l
+
+if __name__ == '__main__':
+    graph = tf.get_default_graph()
+    input_data = tf.placeholder(dtype=tf.float32, shape=[1, 320, 320, 3], name='input_data')
+    # input_data = tf.placeholder(dtype=tf.float32, shape=[None, None, None, None], name='input_data')
+    trainable = tf.placeholder(dtype=tf.bool, shape=[], name='training')
+
+    route_1, route_2, route3 = backbone(input_data,trainable)
+
+    flops = evaluate_flops(graph)
+    params = evaluate_params(graph)
+    print('flops:', flops)
+    print('params:', params)
 

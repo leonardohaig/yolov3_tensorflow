@@ -11,6 +11,7 @@
 
 import tensorflow as tf
 import core.common as common
+from evaluator import *
 
 def MobilenetV2(input_data, training):
     with tf.variable_scope('MobilenetV2'):
@@ -76,6 +77,12 @@ def MobilenetV2(input_data, training):
 
 
 if __name__ == '__main__':
-    input_data = tf.placeholder(dtype=tf.float32,shape=[5,416,416,3],name='input_data')
+    graph = tf.get_default_graph()
+    input_data = tf.placeholder(dtype=tf.float32,shape=[1,320,320,3],name='input_data')
     trainable = tf.placeholder(dtype=tf.bool, shape=[],name='training')
     s,m,l = MobilenetV2(input_data,trainable)
+
+    flops = evaluate_flops(graph)
+    params = evaluate_params(graph)
+    print('flops:', flops)#1309224192
+    print('params:', params)#2223872

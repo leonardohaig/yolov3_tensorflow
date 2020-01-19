@@ -138,6 +138,7 @@ def convolutional(input_data, filters_shape,
             #                                      moving_variance_initializer=tf.ones_initializer(),
             #                                      training=trainable)#BN操作，训练时training=True，测试时training=False
             conv = batch_normalization(input_data=conv, training=trainable)#BN操作，训练时training=True，测试时training=False
+            # conv = group_normalization(input_data=conv,input_c=conv.get_shape().as_list()[-1])
         else:
             bias = tf.get_variable(name='bias',shape=filters_shape[-1],trainable=True,
                                    dtype=tf.float32,initializer=tf.constant_initializer(0.0))
@@ -167,6 +168,30 @@ def residual_block(input_data,input_channel,filter_num1,filter_num2,trainable,na
 
         input_data = convolutional(input_data, filters_shape=(3, 3, filter_num1, filter_num2),
                                    trainable=trainable, name='conv2')# 3X3卷积操作
+
+        residual_output = short_cut + input_data
+
+    return residual_output
+
+def sep_residual_block(input_data,input_channel,filter_num1,filter_num2,trainable,name):
+    '''
+    深度可分离卷积实现残差模块，残差输出 = 输入 + (1X1convolutional输入 + 3X3convolutional的1X1输出)
+    :param input_data:
+    :param input_channel:
+    :param filter_num1:
+    :param filter_num2:输出厚度
+    :param trainable:
+    :param name:
+    :return:
+    '''
+    short_cut = input_data
+
+    with tf.variable_scope(name):
+        input_data = convolutional(input_data,filters_shape=(1,1,input_channel,filter_num1),
+                                   trainable=trainable,name='conv1')# 1X1卷积操作
+        input_data = separable_conv(input_data,filter_num2,
+                                    training=trainable,
+                                    name='conv2',downsample=False)# 3X3深度可分离卷积操作
 
         residual_output = short_cut + input_data
 

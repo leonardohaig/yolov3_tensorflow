@@ -19,8 +19,7 @@ import numpy as np
 import tensorflow as tf
 import core.utils as utils
 import core.common as common
-# import core.backbone as backbone
-import core.MobilenetV2 as backbone
+import core.backbone as backbone
 from core.config import cfg
 from evaluator import *
 
@@ -95,7 +94,7 @@ class YOLOV3(object):
         '''
 
         # 输入层进入 Darknet-53 网络后，得到了三个分支
-        route_1, route_2, input_data = backbone.MobilenetV2(input_data, self.trainable)  # 输出的尺度为52,26,13
+        route_1, route_2, input_data = backbone.backbone(input_data, self.trainable)  # 输出的尺度为52,26,13
         # route_1.shape=(?,52,52,32)，一个特征点代表8*8的图像  检测小目标，最小检测8*8的图像
         # route_2.shape=(?,26,26,96)，一个特征点代表16*16的图像，检测中目标，最小检测16*16的图像
         # route_3.shape=(?,13,13,1280)， 一个特征点代表32*32像素的图像范围，可以用来检测大目标，最小检测32*32的图像。
@@ -104,15 +103,15 @@ class YOLOV3(object):
         # ====predict one=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
         input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv52')
-        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv53')
-        input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv54')
-        input_data = common.separable_conv(input_data, output_c=1024, training=self.trainable, name='conv55')
-        input_data = common.convolutional(input_data, (1, 1, 1024, 512), self.trainable, 'conv56')
+        input_data = common.separable_conv(input_data, output_c=1280, training=self.trainable, name='conv53')
+        input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv54')
+        input_data = common.separable_conv(input_data, output_c=1280, training=self.trainable, name='conv55')
+        input_data = common.convolutional(input_data, (1, 1, 1280, 512), self.trainable, 'conv56')
 
         # conv_lbbox 用于预测大尺寸物体，shape = [None, 13, 13, 255],255=3*(80+5)
-        conv_lobj_branch = common.separable_conv(input_data, output_c=1024, training=self.trainable,
+        conv_lobj_branch = common.separable_conv(input_data, output_c=1280, training=self.trainable,
                                                  name='conv_lobj_branch')
-        conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1024, 3 * (self.num_class + 5)),
+        conv_lbbox = common.convolutional(conv_lobj_branch, (1, 1, 1280, 3 * (self.num_class + 5)),
                                           trainable=self.trainable, name='conv_lbbox', activate=False, bn=False)
 
         # 上采样
@@ -127,7 +126,7 @@ class YOLOV3(object):
 
         # ====predict two=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 96 + 256, 256), self.trainable, 'conv58')
+        input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv58')
         input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv59')
         input_data = common.convolutional(input_data, (1, 1, 512, 256), self.trainable, 'conv60')
         input_data = common.separable_conv(input_data, output_c=512, training=self.trainable, name='conv61')
@@ -148,7 +147,7 @@ class YOLOV3(object):
 
         # ====predict three=======#
         # Convolutional Set 模块，1X1-->3X3-->1X1-->3X3-->1X1
-        input_data = common.convolutional(input_data, (1, 1, 32 + 128, 128), self.trainable, 'conv64')
+        input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv64')
         input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name='conv65')
         input_data = common.convolutional(input_data, (1, 1, 256, 128), self.trainable, 'conv66')
         input_data = common.separable_conv(input_data, output_c=256, training=self.trainable, name='conv67')
@@ -379,24 +378,24 @@ class YOLOV3(object):
         input_size = tf.cast(input_size, tf.float32)
 
 
-        # # 坐标损失
-        # y = tf.tile(tf.range(output_size, dtype=tf.int32)[:, tf.newaxis], [1, output_size])
-        # x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])
-        # xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
-        # xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, self.anchor_per_scale, 1])
-        # xy_grid = tf.cast(xy_grid, tf.float32)
-        #
-        # label_txty = 1.0 * label_xy / stride - xy_grid
-        # label_raw_twth = tf.log((1.0 * label_wh / stride) / anchors)
-        # label_raw_twth = tf.where(tf.is_inf(label_raw_twth), tf.zeros_like(label_raw_twth), label_raw_twth)
-        #
-        # # this is a scaling method to strengthen the influence of small bbox's giou
-        # # basically if the bbox is small, then this scale is greater (2 - box_area/total_area)
-        # bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
-        # xy_loss = respond_bbox * bbox_loss_scale * \
-        #           tf.nn.sigmoid_cross_entropy_with_logits(labels=label_txty, logits=conv_raw_dxdy)
-        # wh_loss = 0.5 * respond_bbox * bbox_loss_scale * tf.square(label_raw_twth - conv_raw_dwdh)  #
-        #
+        # 坐标损失
+        y = tf.tile(tf.range(output_size, dtype=tf.int32)[:, tf.newaxis], [1, output_size])
+        x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 1])
+        xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
+        xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, self.anchor_per_scale, 1])
+        xy_grid = tf.cast(xy_grid, tf.float32)
+
+        label_txty = 1.0 * label_xy / stride - xy_grid
+        label_raw_twth = tf.log((1.0 * label_wh / stride) / anchors)
+        label_raw_twth = tf.where(tf.is_inf(label_raw_twth), tf.zeros_like(label_raw_twth), label_raw_twth)
+
+        # this is a scaling method to strengthen the influence of small bbox's giou
+        # basically if the bbox is small, then this scale is greater (2 - box_area/total_area)
+        bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
+        xy_loss = respond_bbox * bbox_loss_scale * \
+                  tf.nn.sigmoid_cross_entropy_with_logits(labels=label_txty, logits=conv_raw_dxdy)
+        wh_loss = 0.5 * respond_bbox * bbox_loss_scale * tf.square(label_raw_twth - conv_raw_dwdh)  #
+
         # giou_loss = xy_loss + wh_loss
 
 
@@ -406,10 +405,11 @@ class YOLOV3(object):
         # GIou loss
         # this is a scaling method to strengthen the influence of small bbox's giou
         # basically if the bbox is small, then this scale is greater (2 - box_area/total_area)
-        bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
+        # bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
         giou_loss = respond_bbox * bbox_loss_scale * (1 - giou) #两个边界框之间的 GIoU 值越大，
                                                              # giou 的损失值就会越小, 因此网络会朝着
                                                                 # 预测框与真实框重叠度较高的方向去优化
+        giou_loss = giou_loss + xy_loss + wh_loss
 
 
 
@@ -695,8 +695,11 @@ class YOLOV3(object):
 
 
 if __name__ == '__main__':
+    import time
+
     graph = tf.get_default_graph()
-    input_data = tf.placeholder(dtype=tf.float32, shape=[5, 416, 416, 3], name='input_data')
+    # input_data = tf.placeholder(dtype=tf.float32, shape=[1, 320, 320, 3], name='input_data')
+    input_data = tf.truncated_normal(shape=(1, 320, 320, 3), dtype=tf.float32)
     # input_data = tf.placeholder(dtype=tf.float32, shape=[None, None, None, None], name='input_data')
     trainable = tf.placeholder(dtype=tf.bool, shape=[], name='training')
     score_threshold = tf.placeholder(dtype=tf.float32, shape=[], name='score_threshold')
@@ -710,14 +713,24 @@ if __name__ == '__main__':
     true_mbboxes = tf.placeholder(dtype=tf.float32, name='mbboxes')
     true_lbboxes = tf.placeholder(dtype=tf.float32, name='lbboxes')
 
-    model = YOLOV3(input_data, trainable, score_threshold, iou_threshold, per_cls_maxboxes)
-
-    giou_loss, conf_loss, prob_loss = model.compute_loss(label_sbbox, label_mbbox, label_lbbox,
-                                                         true_sbboxes, true_mbboxes, true_lbboxes)
+    model = YOLOV3(input_data, tf.constant(False, dtype=tf.bool))
+    output = model.pred_lbbox
+    # giou_loss, conf_loss, prob_loss = model.compute_loss(label_sbbox, label_mbbox, label_lbbox,
+    #                                                      true_sbboxes, true_mbboxes, true_lbboxes)
 
     flops = evaluate_flops(graph)
     params = evaluate_params(graph)
     print('flops:', flops)
     print('params:', params)
 
-    stats_graph(graph)
+
+    # stats_graph(graph)
+    with tf.Session() as sess:
+        sess.run(tf.group(tf.global_variables_initializer(),
+                          tf.local_variables_initializer()))
+        sess.run(output)
+        t = time.time()
+        for i in range(10):
+            sess.run(output)
+        print((time.time() - t)/10)
+

@@ -307,7 +307,7 @@ class YoloTrain(object):
         self.steps_per_period = len(self.trainset)
         self.config = tf.ConfigProto(allow_soft_placement=True)
         # self.config.gpu_options.allow_growth = True
-        # self.config.gpu_options.per_process_gpu_memory_fraction = 0.8  # 占用80%显存
+        self.config.gpu_options.per_process_gpu_memory_fraction = 0.8  # 占用80%显存
         self.sess = tf.Session(config=self.config)
         self.ckpt_savePath = cfg.TRAIN.MODEL_SAVE_DIR # ckpt文件保存路径
         if not os.path.exists(self.ckpt_savePath):  # 模型保存路径不存在，则创建该路径
@@ -390,6 +390,20 @@ class YoloTrain(object):
                 with tf.control_dependencies([second_stage_optimizer, global_step_update]):
                     with tf.control_dependencies([moving_ave]):
                         self.train_op_with_all_variables = tf.no_op()
+
+
+        # with tf.name_scope('load_defined_params'):
+        #     """
+        #     从模型中恢复指定层的参数到网络中
+        #     """
+        #     self.net_var = []
+        #     for var in tf.trainable_variables():
+        #         var_name = var.op.name
+        #         if not ('BatchNorm' in var_name):
+        #             self.net_var.append(var)
+        #         else:
+        #             print(var_name)
+
 
         with tf.name_scope('loader_and_saver'):
             self.loader = tf.train.Saver(self.net_var)

@@ -121,3 +121,4 @@ tools/widerPersontrain.txt
 tools/yoloTest.txt
 tools/yoloTrain.txt
 tools/widerPersontrain1.txt
+tools/*.txt
